@@ -1,0 +1,74 @@
+{
+  "usage": {
+    "period": {
+      "start": "2026-01-18",
+      "end": "2026-02-18"
+    },
+    "total": 1247.32,
+    "services": [
+      {
+        "name": "EC2",
+        "cost": 523.41,
+        "percent": 42.0
+      },
+      {
+        "name": "RDS",
+        "cost": 312.18,
+        "percent": 25.0
+      },
+      {
+        "name": "S3",
+        "cost": 198.44,
+        "percent": 15.9
+      },
+      {
+        "name": "Lambda",
+        "cost": 87.22,
+        "percent": 7.0
+      },
+      {
+        "name": "CloudFront",
+        "cost": 52.11,
+        "percent": 4.2
+      }
+    ]
+  },
+  "comparison": {
+    "current": {
+      "start": "2026-01-18",
+      "end": "2026-02-18",
+      "total": 1247.32
+    },
+    "previous": {
+      "start": "2025-12-18",
+      "end": "2026-01-18",
+      "total": 1056.00
+    },
+    "change": 191.32,
+    "change_percent": 18.1,
+    "service_changes": [
+      {
+        "name": "EC2",
+        "current": 523.41,
+        "previous": 367.00,
+        "change": 156.41,
+        "change_percent": 42.6
+      }
+    ]
+  },
+  "regions": {
+    "total": 1247.32,
+    "regions": [
+      {
+        "name": "us-east-1",
+        "cost": 798.29,
+        "percent": 64.0
+      },
+      {
+        "name": "us-west-2",
+        "cost": 311.83,
+        "percent": 25.0
+      }
+    ]
+  }
+}

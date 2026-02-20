@@ -1,0 +1,10 @@
+identity/LineItemId,identity/TimeInterval,bill/BillingPeriodStartDate,bill/BillingPeriodEndDate,lineItem/ProductCode,lineItem/UsageType,lineItem/Operation,lineItem/UsageAmount,lineItem/UnblendedCost,lineItem/LineItemDescription,product/region
+a1b2c3d4,2026-01-18T00:00:00Z/2026-01-19T00:00:00Z,2026-01-01,2026-01-31,AmazonEC2,USW2-BoxUsage:t3.medium,RunInstances,24.0,12.48,USD 0.52 per On Demand Linux t3.medium Instance Hour,us-west-2
+e5f6g7h8,2026-01-18T00:00:00Z/2026-01-19T00:00:00Z,2026-01-01,2026-01-31,AmazonEC2,USW2-BoxUsage:t3.medium,RunInstances,24.0,12.48,USD 0.52 per On Demand Linux t3.medium Instance Hour,us-west-2
+i9j0k1l2,2026-01-18T00:00:00Z/2026-01-19T00:00:00Z,2026-01-01,2026-01-31,AmazonRDS,USW2-RDS:db.t3.medium,CreateDBInstance,24.0,8.64,USD 0.36 per RDS db.t3.medium Instance Hour,us-west-2
+m3n4o5p6,2026-01-18T00:00:00Z/2026-01-19T00:00:00Z,2026-01-01,2026-01-31,AmazonS3,USW2-Requests-Tier1,PutObject,15000,0.075,USD 0.005 per 1000 PUT requests,us-west-2
+q7r8s9t0,2026-01-18T00:00:00Z/2026-01-19T00:00:00Z,2026-01-01,2026-01-31,AmazonS3,USW2-TimedStorage-ByteHrs,StorageUsage,50000000000,1.15,USD 0.023 per GB-Month,us-west-2
+u1v2w3x4,2026-01-18T00:00:00Z/2026-01-19T00:00:00Z,2026-01-01,2026-01-31,AWSLambda,USW2-Request,Invoke,1000000,0.20,USD 0.20 per 1M requests,us-west-2
+y5z6a7b8,2026-01-18T00:00:00Z/2026-01-19T00:00:00Z,2026-01-01,2026-01-31,AWSLambda,USW2-Lambda-GB-Second,Duration,500000,8.33,USD 0.0000166667 per GB-second,us-west-2
+c9d0e1f2,2026-01-19T00:00:00Z/2026-01-20T00:00:00Z,2026-01-01,2026-01-31,AmazonEC2,USW2-BoxUsage:t3.medium,RunInstances,24.0,12.48,USD 0.52 per On Demand Linux t3.medium Instance Hour,us-west-2
+g3h4i5j6,2026-01-19T00:00:00Z/2026-01-20T00:00:00Z,2026-01-01,2026-01-31,AmazonEC2,USW2-BoxUsage:t3.large,RunInstances,24.0,24.96,USD 1.04 per On Demand Linux t3.large Instance Hour,us-west-2

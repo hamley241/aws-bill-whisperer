@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+  AWSBillWhispererFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: analyzer.handler.lambda_handler
+      Runtime: python3.12
+      MemorySize: 256
+      Timeout: 30
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - ce:GetCostAndUsage
+                - ce:GetCostForecast
+                - bedrock:InvokeModel
+              Resource: "*"
+      Environment:
+        Variables:
+          LLM_PROVIDER: !Ref LlmProvider
+          SLACK_WEBHOOK: !Ref SlackWebhook
+          ANALYSIS_DAYS: !Ref AnalysisDays
+
+Parameters:
+  LlmProvider:
+    Type: String
+    Default: "bedrock"
+    AllowedValues:
+      - bedrock
+      - openai
+
+  SlackWebhook:
+    Type: String
+
+  AnalysisDays:
+    Type: Number
+    Default: 30
