@@ -2,7 +2,7 @@
 
 ---
 
-After 5 years at AWS working on Lambda and BigMac (the team managing ~1 million EC2 instances), I saw one pattern constantly:
+After 6 years at AWS working on Lambda and the Load Balancer platform (managing EC2 fleets at massive scale), I saw one pattern constantly:
 
 **Engineers struggling to understand their AWS bills.**
 

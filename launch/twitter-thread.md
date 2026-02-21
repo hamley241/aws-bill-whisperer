@@ -3,7 +3,7 @@
 ---
 
 **Tweet 1 (Hook)**
-I spent 5 years at AWS working on Lambda and BigMac (the team managing ~1M EC2 instances).
+I spent 6 years at AWS working on Lambda and the Load Balancer platform (managing EC2 at massive scale).
 
 One thing I saw constantly: engineers struggling to understand their AWS bills.
 

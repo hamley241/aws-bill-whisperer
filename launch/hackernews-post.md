@@ -14,7 +14,7 @@
 
 ## Post Text
 
-I spent 5 years at AWS (Lambda, BigMac team). One thing I saw constantly: engineers confused by their AWS bills.
+I spent 6 years at AWS (Lambda, Load Balancer platform). One thing I saw constantly: engineers confused by their AWS bills.
 
 Existing tools (Vantage, CloudHealth, Finout) are good, but they're SaaS — your billing data flows through their infrastructure. For some teams, that's a dealbreaker.
 
