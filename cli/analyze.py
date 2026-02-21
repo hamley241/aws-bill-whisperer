@@ -19,7 +19,7 @@ import sys
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from analyzer import cost_explorer, formatter, llm
+from analyzer import cost_explorer, csv_parser, formatter, llm
 
 
 def get_mock_data() -> dict:
@@ -93,6 +93,7 @@ def main():
 Examples:
   %(prog)s --days 30                    # Analyze last 30 days
   %(prog)s --days 7 --output json       # Last week, JSON output
+  %(prog)s --csv costs.csv              # Analyze from CUR CSV file
   %(prog)s --mock                       # Test with mock data
   %(prog)s --provider openai            # Use OpenAI instead of Bedrock
 
@@ -127,6 +128,12 @@ Environment variables:
         help='Model override (e.g., gpt-4o, anthropic.claude-3-haiku...)'
     )
     parser.add_argument(
+        '--csv', '-c',
+        type=str,
+        metavar='FILE',
+        help='Analyze from CUR CSV file instead of Cost Explorer API'
+    )
+    parser.add_argument(
         '--mock',
         action='store_true',
         help='Use mock data (for testing without AWS credentials)'
@@ -150,6 +157,10 @@ Environment variables:
             if args.verbose:
                 print("Using mock data...", file=sys.stderr)
             cost_data = get_mock_data()
+        elif args.csv:
+            if args.verbose:
+                print(f"Parsing CSV file: {args.csv}...", file=sys.stderr)
+            cost_data = csv_parser.parse_cur_csv(args.csv)
         else:
             if args.verbose:
                 print(f"Fetching cost data for last {args.days} days...", file=sys.stderr)

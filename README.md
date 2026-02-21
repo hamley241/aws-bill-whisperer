@@ -70,12 +70,23 @@ sam build
 sam deploy --guided
 ```
 
-### Option 3: Just the Lambda
+### Option 3: CLI (API)
 ```bash
 # Run locally against your AWS credentials
 pip install -r requirements.txt
-python analyze.py --days 30
+python cli/analyze.py --days 30
 ```
+
+### Option 4: CLI (CSV)
+```bash
+# Analyze from a Cost & Usage Report CSV (no API access needed)
+python cli/analyze.py --csv your-cur-export.csv
+```
+
+This is useful for:
+- Testing without Cost Explorer access
+- Air-gapped environments
+- Historical analysis from exported data
 
 ## 📊 Sample Output
 
