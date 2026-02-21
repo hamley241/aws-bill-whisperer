@@ -1,9 +1,4 @@
-# AWS Bill Whisperer: Finally, an AWS Cost Tool That Respects Your Privacy
-
-**Alternative Titles:**
-1. *I Spent 6 Years at AWS. Here's Why I Built My Own Cost Analyzer.*
-2. *The Self-Hosted AWS Cost Tool I Wish Existed When I Was at AWS*
-3. *Your AWS Billing Data Doesn't Need to Leave Your Account* 
+# Your AWS Billing Data Doesn't Need to Leave Your Account 
 
 ---
 

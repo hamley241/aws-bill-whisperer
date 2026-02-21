@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AWS Bill Whisperer — Self-Hosted AWS Cost Analytics</title>
+    <title>AWS Bill Whisperer — Your AWS Billing Data Doesn't Need to Leave Your Account</title>
     <meta name="description" content="Privacy-first AWS cost analyzer. Your billing data never leaves your account. AI-powered insights via Amazon Bedrock. Deploy in 5 minutes.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,271 +13,271 @@
         :root {
             --bg-primary: #0a0a0f;
             --bg-secondary: #12121a;
-            --bg-tertiary: #1a1a25;
             --bg-card: #161622;
             --text-primary: #ffffff;
             --text-secondary: #a0a0b0;
             --text-muted: #6b6b7b;
-            --accent-primary: #ff9900;
-            --accent-secondary: #00d4aa;
-            --accent-blue: #3b82f6;
+            --accent-orange: #ff9900;
+            --accent-teal: #00d4aa;
             --border-color: #2a2a3a;
-            --gradient-orange: linear-gradient(135deg, #ff9900 0%, #ff6b35 100%);
-            --gradient-teal: linear-gradient(135deg, #00d4aa 0%, #00a8ff 100%);
-            --shadow-glow: 0 0 40px rgba(255, 153, 0, 0.15);
         }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        html {
-            scroll-behavior: smooth;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: var(--bg-primary);
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
             color: var(--text-primary);
             line-height: 1.6;
-            overflow-x: hidden;
         }
-
-        /* Navigation */
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 2rem; }
+        
+        /* Nav */
         nav {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            z-index: 1000;
-            background: rgba(10, 10, 15, 0.8);
-            backdrop-filter: blur(20px);
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            background: rgba(10,10,15,0.9); backdrop-filter: blur(10px);
             border-bottom: 1px solid var(--border-color);
         }
-
-        .nav-container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 1rem 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+        .nav-inner {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 1rem 2rem; max-width: 1100px; margin: 0 auto;
         }
-
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            font-weight: 800;
-            font-size: 1.25rem;
-            color: var(--text-primary);
-            text-decoration: none;
-        }
-
-        .logo-icon {
-            width: 32px;
-            height: 32px;
-            background: var(--gradient-orange);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1rem;
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 2rem;
-            align-items: center;
-        }
-
+        .logo { font-weight: 800; font-size: 1.2rem; color: var(--text-primary); text-decoration: none; }
+        .logo span { color: var(--accent-orange); }
         .nav-links a {
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-size: 0.9rem;
-            font-weight: 500;
-            transition: color 0.2s;
+            color: var(--text-secondary); text-decoration: none; margin-left: 2rem;
+            font-size: 0.9rem; transition: color 0.2s;
         }
-
-        .nav-links a:hover {
-            color: var(--text-primary);
-        }
-
+        .nav-links a:hover { color: var(--text-primary); }
+        
+        /* Buttons */
         .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.75rem 1.5rem;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 0.95rem;
-            text-decoration: none;
-            transition: all 0.2s;
-            cursor: pointer;
-            border: none;
+            display: inline-block; padding: 0.8rem 1.6rem; border-radius: 8px;
+            font-weight: 600; text-decoration: none; transition: all 0.2s;
         }
-
-        .btn-primary {
-            background: var(--gradient-orange);
-            color: #000;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-glow);
-        }
-
-        .btn-secondary {
-            background: transparent;
-            color: var(--text-primary);
-            border: 1px solid var(--border-color);
-        }
-
-        .btn-secondary:hover {
-            background: var(--bg-tertiary);
-            border-color: var(--text-muted);
-        }
-
-        .btn-large {
-            padding: 1rem 2rem;
-            font-size: 1rem;
-        }
-
-        /* Hero Section */
+        .btn-primary { background: var(--accent-orange); color: #000; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(255,153,0,0.3); }
+        .btn-secondary { border: 1px solid var(--border-color); color: var(--text-primary); }
+        .btn-secondary:hover { background: var(--bg-secondary); }
+        
+        /* Hero */
         .hero {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 8rem 2rem 4rem;
-            position: relative;
-            overflow: hidden;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            text-align: center; padding: 8rem 2rem 4rem;
+            background: radial-gradient(ellipse at top, rgba(255,153,0,0.08), transparent 50%);
         }
-
-        .hero::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: 
-                radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255, 153, 0, 0.08), transparent),
-                radial-gradient(ellipse 60% 40% at 80% 60%, rgba(0, 212, 170, 0.05), transparent);
-            pointer-events: none;
+        .hero h1 { font-size: clamp(2.2rem, 5vw, 3.5rem); font-weight: 800; margin-bottom: 1.5rem; line-height: 1.15; }
+        .hero h1 span { color: var(--accent-orange); }
+        .hero p { font-size: 1.2rem; color: var(--text-secondary); max-width: 600px; margin: 0 auto 2rem; }
+        .hero-btns { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+        .hero-stats { display: flex; justify-content: center; gap: 3rem; margin-top: 4rem; flex-wrap: wrap; }
+        .stat-value { display: block; font-size: 2.5rem; font-weight: 800; }
+        .stat-label { font-size: 0.85rem; color: var(--text-muted); }
+        
+        /* Sections */
+        section { padding: 5rem 2rem; }
+        .section-dark { background: var(--bg-secondary); }
+        .section-title { text-align: center; margin-bottom: 3rem; }
+        .section-title h2 { font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem; }
+        .section-title p { color: var(--text-secondary); }
+        
+        /* Comparison Table */
+        .comparison { overflow-x: auto; }
+        .comparison table { width: 100%; border-collapse: collapse; }
+        .comparison th, .comparison td { padding: 1rem; text-align: left; border-bottom: 1px solid var(--border-color); }
+        .comparison th { color: var(--text-muted); font-weight: 500; font-size: 0.85rem; text-transform: uppercase; }
+        .comparison td:first-child { font-weight: 600; }
+        .check { color: var(--accent-teal); }
+        .cross { color: #ff4d4d; }
+        
+        /* Features Grid */
+        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem; }
+        .feature-card {
+            background: var(--bg-card); border: 1px solid var(--border-color);
+            border-radius: 12px; padding: 2rem;
         }
-
-        .hero-content {
-            max-width: 900px;
-            text-align: center;
-            position: relative;
-            z-index: 1;
+        .feature-icon { font-size: 2rem; margin-bottom: 1rem; }
+        .feature-card h3 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+        .feature-card p { color: var(--text-secondary); font-size: 0.95rem; }
+        
+        /* How It Works */
+        .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 2rem; }
+        .step { text-align: center; }
+        .step-num {
+            width: 50px; height: 50px; background: var(--accent-orange); color: #000;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-weight: 800; font-size: 1.2rem; margin: 0 auto 1rem;
         }
-
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            border-radius: 50px;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            margin-bottom: 2rem;
+        .step h3 { margin-bottom: 0.5rem; }
+        .step p { color: var(--text-secondary); font-size: 0.95rem; }
+        
+        /* CTA */
+        .cta { text-align: center; padding: 6rem 2rem; }
+        .cta h2 { font-size: 2.5rem; margin-bottom: 1rem; }
+        .cta p { color: var(--text-secondary); margin-bottom: 2rem; max-width: 500px; margin-left: auto; margin-right: auto; }
+        
+        /* Footer */
+        footer { padding: 3rem 2rem; border-top: 1px solid var(--border-color); text-align: center; }
+        footer p { color: var(--text-muted); font-size: 0.9rem; }
+        footer a { color: var(--text-secondary); }
+        
+        /* Mobile */
+        @media (max-width: 768px) {
+            .nav-links { display: none; }
+            .hero-stats { gap: 2rem; }
         }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-inner">
+            <a href="#" class="logo">☁️ Bill <span>Whisperer</span></a>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#how-it-works">How It Works</a>
+                <a href="#comparison">Compare</a>
+                <a href="https://github.com/hamley241/aws-bill-whisperer" class="btn btn-primary">Get Started</a>
+            </div>
+        </div>
+    </nav>
 
-        .badge-dot {
-            width: 8px;
-            height: 8px;
-            background: var(--accent-secondary);
-            border-radius: 50%;
-            animation: pulse 2s infinite;
-        }
+    <section class="hero">
+        <div class="container">
+            <h1>Your AWS Billing Data<br><span>Doesn't Need to Leave</span><br>Your Account</h1>
+            <p>Self-hosted, privacy-first AWS cost analyzer. AI-powered insights via Amazon Bedrock. Deploy in 5 minutes.</p>
+            <div class="hero-btns">
+                <a href="https://github.com/hamley241/aws-bill-whisperer" class="btn btn-primary">⭐ Star on GitHub</a>
+                <a href="https://github.com/hamley241/aws-bill-whisperer#-quick-start" class="btn btn-secondary">Quick Start →</a>
+            </div>
+            <div class="hero-stats">
+                <div><span class="stat-value">$1-5</span><span class="stat-label">Monthly Cost</span></div>
+                <div><span class="stat-value">5 min</span><span class="stat-label">Deploy Time</span></div>
+                <div><span class="stat-value">100%</span><span class="stat-label">In Your Account</span></div>
+            </div>
+        </div>
+    </section>
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
+    <section class="section-dark" id="comparison">
+        <div class="container">
+            <div class="section-title">
+                <h2>Why Bill Whisperer?</h2>
+                <p>Compare to traditional SaaS cost tools</p>
+            </div>
+            <div class="comparison">
+                <table>
+                    <tr>
+                        <th></th>
+                        <th>Bill Whisperer</th>
+                        <th>SaaS Tools (Vantage, etc.)</th>
+                    </tr>
+                    <tr>
+                        <td>Where data lives</td>
+                        <td><span class="check">✓</span> Your AWS account</td>
+                        <td><span class="cross">✗</span> Third-party servers</td>
+                    </tr>
+                    <tr>
+                        <td>Who sees your costs</td>
+                        <td><span class="check">✓</span> Only you</td>
+                        <td><span class="cross">✗</span> Vendor + their infra</td>
+                    </tr>
+                    <tr>
+                        <td>Monthly cost</td>
+                        <td><span class="check">✓</span> ~$1-5 (AWS charges)</td>
+                        <td><span class="cross">✗</span> $30-200+ subscription</td>
+                    </tr>
+                    <tr>
+                        <td>Customization</td>
+                        <td><span class="check">✓</span> Fork it (MIT license)</td>
+                        <td><span class="cross">✗</span> Limited</td>
+                    </tr>
+                    <tr>
+                        <td>Vendor lock-in</td>
+                        <td><span class="check">✓</span> None</td>
+                        <td><span class="cross">✗</span> Yes</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </section>
 
-        .hero h1 {
-            font-size: clamp(2.5rem, 6vw, 4.5rem);
-            font-weight: 800;
-            line-height: 1.1;
-            margin-bottom: 1.5rem;
-            letter-spacing: -0.02em;
-        }
+    <section id="features">
+        <div class="container">
+            <div class="section-title">
+                <h2>Features</h2>
+                <p>Everything you need to understand your AWS costs</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Privacy First</h3>
+                    <p>Runs 100% inside your AWS account. Your billing data never touches third-party servers.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3>AI-Powered</h3>
+                    <p>Claude via Amazon Bedrock explains your costs in plain English and suggests optimizations.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>5-Minute Deploy</h3>
+                    <p>One-click CloudFormation deployment. No complex setup or configuration required.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💰</div>
+                    <h3>Cost Effective</h3>
+                    <p>~$1-5/month in AWS charges. Compare to $30-200+/month for SaaS alternatives.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Actionable Insights</h3>
+                    <p>Get specific recommendations with estimated savings. Not just charts—answers.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔧</div>
+                    <h3>Open Source</h3>
+                    <p>MIT licensed. Fork it, customize the prompts, add your own rules. Full control.</p>
+                </div>
+            </div>
+        </div>
+    </section>
 
-        .hero h1 span {
-            background: var(--gradient-orange);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
+    <section class="section-dark" id="how-it-works">
+        <div class="container">
+            <div class="section-title">
+                <h2>How It Works</h2>
+                <p>Simple architecture, powerful results</p>
+            </div>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <h3>Deploy</h3>
+                    <p>One-click CloudFormation deployment into your AWS account</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <h3>Analyze</h3>
+                    <p>Lambda reads your Cost Explorer data and sends to Bedrock</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <h3>Understand</h3>
+                    <p>Claude explains your costs and suggests optimizations</p>
+                </div>
+            </div>
+        </div>
+    </section>
 
-        .hero-subtitle {
-            font-size: clamp(1.1rem, 2vw, 1.35rem);
-            color: var(--text-secondary);
-            max-width: 600px;
-            margin: 0 auto 2.5rem;
-            font-weight: 400;
-        }
+    <section class="cta">
+        <div class="container">
+            <h2>Ready to understand your AWS bill?</h2>
+            <p>Open source, privacy-first, and deploys in 5 minutes. No credit card required.</p>
+            <a href="https://github.com/hamley241/aws-bill-whisperer" class="btn btn-primary btn-large">Get Started on GitHub →</a>
+        </div>
+    </section>
 
-        .hero-cta {
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
-
-        .hero-stats {
-            display: flex;
-            justify-content: center;
-            gap: 3rem;
-            margin-top: 4rem;
-            flex-wrap: wrap;
-        }
-
-        .stat {
-            text-align: center;
-        }
-
-        .stat-value {
-            font-size: 2.5rem;
-            font-weight: 800;
-            color: var(--text-primary);
-            display: block;
-        }
-
-        .stat-label {
-            font-size: 0.9rem;
-            color: var(--text-muted);
-        }
-
-        /* Section Styles */
-        section {
-            padding: 6rem 2rem;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .section-header {
-            text-align: center;
-            max-width: 700px;
-            margin: 0 auto 4rem;
-        }
-
-        .section-header h2 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-            letter-spacing: -0.02em;
-        }
-
-        .section-header p {
-            font-size: 1.
+    <footer>
+        <div class="container">
+            <p>Built by <a href="https://linkedin.com/in/goutham-patley-b1391b41">Goutham Patley</a> • Former AWS Engineer (Lambda, Load Balancers)</p>
+            <p style="margin-top: 0.5rem;">MIT License • <a href="https://github.com/hamley241/aws-bill-whisperer">GitHub</a></p>
+        </div>
+    </footer>
+</body>
+</html>
