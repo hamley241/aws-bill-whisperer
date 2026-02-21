@@ -92,3 +92,11 @@ yarn-error.log*
 # Build artifacts
 *.zip
 *.tar.gz
+
+# Internal/private content (keep in gpclaws, not public)
+/launch/
+/content/
+/social/
+/USP.md
+/samconfig.toml
+
