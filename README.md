@@ -286,4 +286,4 @@ MIT - Use it, fork it, sell it, whatever.
 ---
 
 Built by [Goutham Patley](https://linkedin.com/in/goutham-patley-b1391b41) 
-Former AWS (Lambda, Load Balancers) • 10 years distributed systems
+• 10 years distributed systems
