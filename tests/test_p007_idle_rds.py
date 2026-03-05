@@ -42,6 +42,7 @@ class TestIdleRDSPattern:
                 'DBInstanceStatus': 'available',
                 'MultiAZ': False,
                 'AvailabilityZone': 'us-east-1a',
+                'InstanceCreateTime': datetime.now(timezone.utc) - timedelta(days=30),
             }]
         }
         
@@ -129,6 +130,7 @@ class TestIdleRDSPattern:
                 'DBInstanceStatus': 'available',
                 'MultiAZ': True,  # Multi-AZ enabled
                 'AvailabilityZone': 'us-east-1a',
+                'InstanceCreateTime': datetime.now(timezone.utc) - timedelta(days=30),
             }]
         }
         
@@ -211,6 +213,7 @@ class TestIdleRDSPattern:
                 'DBInstanceStatus': 'available',
                 'MultiAZ': True,
                 'AvailabilityZone': 'us-east-1a',
+                'InstanceCreateTime': datetime.now(timezone.utc) - timedelta(days=30),
             }]
         }
         
