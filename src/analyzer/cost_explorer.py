@@ -1,5 +1,13 @@
 """AWS Cost Explorer client for fetching and parsing cost data."""
 
+def format_service_name(service_name: str) -> str:
+    """Format AWS service name for display."""
+    if service_name.startswith("Amazon "):
+        return service_name.replace("Amazon ", "", 1)
+    if service_name.startswith("AWS "):
+        return service_name.replace("AWS ", "", 1)
+    return service_name
+
 import logging
 from datetime import datetime, timedelta
 

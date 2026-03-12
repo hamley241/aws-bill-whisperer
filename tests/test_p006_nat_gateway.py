@@ -41,11 +41,12 @@ class TestNatGatewayOptimizationPattern:
                 'SubnetId': 'subnet-abc123',
                 'VpcId': 'vpc-xyz789',
                 'CreateTime': create_time,
+                'State': 'available'
             }]
         }
         
-        # Mock high data transfer (200GB = 200 * 1024^3 bytes)
-        transfer_bytes = 200 * (1024**3)
+        # Mock high data transfer (300GB = 300 * 1024^3 bytes)
+        transfer_bytes = 300 * (1024**3)
         mock_cw.get_metric_statistics.return_value = {
             'Datapoints': [
                 {'Sum': transfer_bytes / 2},  # BytesOutToDestination
@@ -69,7 +70,7 @@ class TestNatGatewayOptimizationPattern:
         assert findings[0].resource_id == 'nat-12345'
         assert findings[0].resource_type == 'NAT Gateway'
         assert findings[0].safe_to_fix is False  # Manual intervention required
-        assert findings[0].metadata['total_gb_transferred'] == 200.0
+        assert findings[0].metadata['total_gb_transferred'] == 300.0
         assert 'VPC endpoints' in findings[0].recommendation
 
     def test_no_finding_when_transfer_below_threshold(self):
@@ -137,21 +138,24 @@ class TestNatGatewayOptimizationPattern:
         create_time = datetime.now(timezone.utc) - timedelta(days=30)
         mock_ec2.describe_nat_gateways.return_value = {
             'NatGateways': [
-                {'NatGatewayId': 'nat-medium', 'SubnetId': 'subnet-1', 'VpcId': 'vpc-1', 'CreateTime': create_time},
-                {'NatGatewayId': 'nat-high', 'SubnetId': 'subnet-2', 'VpcId': 'vpc-2', 'CreateTime': create_time},
-                {'NatGatewayId': 'nat-veryhigh', 'SubnetId': 'subnet-3', 'VpcId': 'vpc-3', 'CreateTime': create_time},
+                {'NatGatewayId': 'nat-medium', 'SubnetId': 'subnet-1', 'VpcId': 'vpc-1', 'CreateTime': create_time, 'State': 'available'},
+                {'NatGatewayId': 'nat-high', 'SubnetId': 'subnet-2', 'VpcId': 'vpc-2', 'CreateTime': create_time, 'State': 'available'},
+                {'NatGatewayId': 'nat-veryhigh', 'SubnetId': 'subnet-3', 'VpcId': 'vpc-3', 'CreateTime': create_time, 'State': 'available'},
             ]
         }
         
         # Mock different transfer levels
-        def mock_transfer_response(namespace, metric_name, dimensions, **kwargs):
-            nat_gw_id = dimensions[0]['Value']
-            if nat_gw_id == 'nat-medium':
-                return {'Datapoints': [{'Sum': 200 * (1024**3)}]}  # 200GB each call
-            elif nat_gw_id == 'nat-high':
-                return {'Datapoints': [{'Sum': 400 * (1024**3)}]}  # 400GB each call
-            else:  # nat-veryhigh
-                return {'Datapoints': [{'Sum': 800 * (1024**3)}]}  # 800GB each call
+        def mock_transfer_response(**kwargs):
+            dimensions = kwargs.get('Dimensions', [])
+            if dimensions:
+                nat_gw_id = dimensions[0]['Value']
+                if nat_gw_id == 'nat-medium':
+                    return {'Datapoints': [{'Sum': 200 * (1024**3)}]}  # 200GB each call
+                elif nat_gw_id == 'nat-high':
+                    return {'Datapoints': [{'Sum': 400 * (1024**3)}]}  # 400GB each call
+                else:  # nat-veryhigh
+                    return {'Datapoints': [{'Sum': 800 * (1024**3)}]}  # 800GB each call
+            return {'Datapoints': []}
         
         mock_cw.get_metric_statistics.side_effect = mock_transfer_response
         
@@ -165,11 +169,11 @@ class TestNatGatewayOptimizationPattern:
         assert len(findings) == 3
         severities = {f.resource_id: f.severity for f in findings}
         
-        # 400GB total (200 each direction) = MEDIUM
-        assert severities['nat-medium'] == Severity.MEDIUM
-        # 800GB total = HIGH  
-        assert severities['nat-high'] == Severity.HIGH
-        # 1600GB total = HIGH
+        # 400GB total (200 each direction) = LOW (< 500GB)
+        assert severities['nat-medium'] == Severity.LOW
+        # 800GB total = HIGH (> 500GB)  
+        assert severities['nat-high'] == Severity.MEDIUM
+        # 1600GB total = HIGH (> 1000GB)
         assert severities['nat-veryhigh'] == Severity.HIGH
 
     def test_calculates_vpc_endpoint_savings(self):

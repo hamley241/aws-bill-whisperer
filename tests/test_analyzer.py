@@ -58,7 +58,7 @@ class TestFormatter:
         result = formatter.to_json("Analysis", sample_cost_data)
         assert "analysis" in result
         assert "cost_data" in result
-        assert result["cost_data"]["total"] == 1247.32
+        assert result["cost_data"]["usage"]["total"] == 1247.32
 
 
 class TestPrompts:

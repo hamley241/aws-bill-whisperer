@@ -182,32 +182,35 @@ class TestIdleEC2Pattern:
         
         mock_session.client.side_effect = mock_client
         
-        # Launch time must be old enough (>14 days) to be considered
-        launch_time = datetime.now(timezone.utc) - timedelta(days=30)
+        # Launch time must be old enough (>14 days) to be considered - use naive datetime like AWS API returns
+        launch_time = datetime.now() - timedelta(days=30)
         mock_paginator = MagicMock()
         mock_ec2.get_paginator.return_value = mock_paginator
         mock_paginator.paginate.return_value = [{
             'Reservations': [{
                 'Instances': [
                     # Very idle, expensive instance (should be CRITICAL)
-                    {'InstanceId': 'i-critical', 'InstanceType': 'm5.2xlarge', 'Tags': []},
+                    {'InstanceId': 'i-critical', 'InstanceType': 'm5.2xlarge', 'LaunchTime': launch_time, 'Platform': 'Linux/UNIX', 'Tags': []},
                     # Moderately idle instance (should be HIGH)
-                    {'InstanceId': 'i-high', 'InstanceType': 't3.large', 'Tags': []},
+                    {'InstanceId': 'i-high', 'InstanceType': 't3.large', 'LaunchTime': launch_time, 'Platform': 'Linux/UNIX', 'Tags': []},
                     # Less idle instance (should be MEDIUM)
-                    {'InstanceId': 'i-medium', 'InstanceType': 't3.small', 'Tags': []},
+                    {'InstanceId': 'i-medium', 'InstanceType': 't3.small', 'LaunchTime': launch_time, 'Platform': 'Linux/UNIX', 'Tags': []},
                 ]
             }]
         }]
         
         # Mock different CPU levels
-        def mock_cpu_response(namespace, metric_name, dimensions, **kwargs):
-            instance_id = dimensions[0]['Value']
-            if instance_id == 'i-critical':
-                return {'Datapoints': [{'Average': 0.5}]}  # <1% CPU
-            elif instance_id == 'i-high':
-                return {'Datapoints': [{'Average': 1.5}]}  # <2% CPU
-            else:
-                return {'Datapoints': [{'Average': 4.0}]}  # <5% CPU
+        def mock_cpu_response(**kwargs):
+            dimensions = kwargs.get('Dimensions', [])
+            if dimensions:
+                instance_id = dimensions[0]['Value']
+                if instance_id == 'i-critical':
+                    return {'Datapoints': [{'Average': 0.5}]}  # <1% CPU
+                elif instance_id == 'i-high':
+                    return {'Datapoints': [{'Average': 1.5}]}  # <2% CPU
+                else:
+                    return {'Datapoints': [{'Average': 4.0}]}  # <5% CPU
+            return {'Datapoints': []}
         
         mock_cw.get_metric_statistics.side_effect = mock_cpu_response
         
