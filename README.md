@@ -251,6 +251,90 @@ aws-bill-whisperer/
     └── slack_integration.md
 ```
 
+## 🔍 Waste Pattern Scanner
+
+The Pattern Scanner is an automated tool for detecting waste in your AWS resources, saving costs by identifying inefficiencies. It includes 7 distinct waste detection patterns, some of which can be automatically fixed.
+
+| Pattern ID | Description | Auto-Fix Support |
+|------------|-------------|------------------|
+| 001        | Unattached EBS Volumes | Yes |
+| 002        | Idle Elastic IPs | Yes |
+| 003        | Underutilized EC2 Instances | No |
+| 004        | Old Snapshots | Yes |
+| 005        | Duplicate RDS Instances | No |
+| 006        | NAT Gateway Waste | No |
+| 007        | Unused Load Balancers | Yes |
+
+## 🛠️ Waste Pattern Scanner CLI Usage
+
+Here are some usage examples for the Pattern Scanner:
+
+```bash
+python src/whisper.py scan              # Scan all
+python src/whisper.py scan --pattern 001
+python src/whisper.py scan --json
+python src/whisper.py fix 001 vol-xxx --dry-run
+python src/whisper.py patterns          # List patterns
+```
+
+## 📊 Sample Pattern Scan Output
+
+Here is a sample of what the pattern scan output looks like:
+
+```
+🔍 AWS Bill Whisperer - Waste Scan
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Pattern 001: Unattached EBS Volumes
+  📍 EBS Volume: vol-0abc123
+     Region: us-east-1
+     Size: 100 GB
+     Monthly Cost: $8.00
+     ✅ Safe to auto-fix
+
+[etc.]
+```
+
+## 🗂️ Project Structure
+
+```
+aws-bill-whisperer/
+├── README.md
+├── template.yaml              # SAM/CloudFormation
+├── samconfig.toml
+├── src/
+│   ├── analyzer/
+│   │   ├── __init__.py
+│   │   ├── handler.py         # Lambda entry point
+│   │   ├── cost_explorer.py   # AWS Cost Explorer client
+│   │   ├── llm.py             # LLM abstraction (Bedrock/OpenAI)
+│   │   ├── prompts.py         # System prompts
+│   │   ├── formatter.py       # Output formatting
+│   │   └── recommendations.py # Cost optimization rules
+│   ├── whisper.py             # Pattern Scanner
+│   ├── patterns/              # Waste detection patterns
+│   └── requirements.txt
+├── tests/
+│   ├── test_analyzer.py
+│   └── fixtures/
+│       └── sample_cost_data.json
+├── cli/
+│   └── analyze.py             # Local CLI tool
+└── examples/
+    ├── sample_output.md
+    └── slack_integration.md
+```
+
+## 📘 Two Tools in One
+
+AWS Bill Whisperer includes two primary tools:
+1. **AI Bill Analyzer (cli/analyze.py)** - Provides LLM-powered explanations for your AWS bills.
+2. **Pattern Scanner (src/whisper.py)** - Performs automated waste detection in your AWS infrastructure.
+
+## 💡 Unique Feature
+
+> 💡 **Unique Feature**: Pattern 006 analyzes VPC flow logs to find NAT Gateway waste — something most cost tools miss entirely.
+
 ## 🗺️ Roadmap
 
 ### v1.0 - Free (Open Source) ✅
@@ -260,6 +344,9 @@ aws-bill-whisperer/
 - [x] Simple recommendations
 - [x] CloudFormation deploy
 - [x] CLI tool
+- [x] 7 waste detection patterns
+- [x] Auto-fix for safe patterns
+- [x] JSON output support
 
 ### v2.0 - Pro ($29/mo)
 - [ ] Multi-account (Organizations)
