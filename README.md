@@ -93,20 +93,15 @@ pip install -r src/requirements.txt
 python cli/analyze.py --days 30
 ```
 
-### Option 3: CLI (API)
-```bash
-# Run locally against your AWS credentials
-pip install -r requirements.txt
-python cli/analyze.py --days 30
-```
+### Option 3: CLI (CSV — No AWS API Access Needed)
 
-### Option 4: CLI (CSV)
+Analyze from a locally exported Cost & Usage Report:
+
 ```bash
-# Analyze from a Cost & Usage Report CSV (no API access needed)
 python cli/analyze.py --csv your-cur-export.csv
 ```
 
-This is useful for:
+Useful for:
 - Testing without Cost Explorer access
 - Air-gapped environments
 - Historical analysis from exported data
