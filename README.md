@@ -21,6 +21,12 @@ AWS Bill Whisperer is different: it runs **100% inside your AWS account**. Deplo
 
 ---
 
+## 🏥 Regulated Industries (Healthcare, Finance, Government)
+
+For organizations operating under **HIPAA**, **SOC 2**, **FedRAMP**, or **data residency requirements**, sending billing data to third-party SaaS platforms often requires legal review, BAAs, or is simply prohibited by policy. Bill Whisperer eliminates this friction entirely — your cost data never leaves your AWS account, Bedrock runs in your region, and you maintain full audit control. This makes it ideal for health systems, financial institutions, and government contractors who need cost visibility without compliance headaches.
+
+---
+
 ## 🎯 What It Does
 
 1. Reads your AWS Cost & Usage data
@@ -56,8 +62,16 @@ Running in your account: **~$1-5/month**
 
 ## 🚀 Quick Start
 
-### Option 1: One-Click Deploy
-[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/new?stackName=bill-whisperer)
+### Option 1: SAM Deploy (Recommended)
+```bash
+# Clone
+git clone https://github.com/hamley241/aws-bill-whisperer
+cd aws-bill-whisperer
+
+# Deploy
+sam build
+sam deploy --guided
+```
 
 ### Option 2: CLI
 ```bash
