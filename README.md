@@ -63,6 +63,10 @@ Running in your account: **~$1-5/month**
 ## 🚀 Quick Start
 
 ### Option 1: SAM Deploy (Recommended)
+
+[![Deploy to AWS](https://img.shields.io/badge/Deploy%20to-AWS-orange?logo=amazon-aws)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/render?templateURL=https://raw.githubusercontent.com/hamley241/aws-bill-whisperer/main/template.yaml)
+
+Or deploy manually:
 ```bash
 # Clone
 git clone https://github.com/hamley241/aws-bill-whisperer
@@ -73,15 +77,20 @@ sam build
 sam deploy --guided
 ```
 
-### Option 2: CLI
+### Option 2: Local Development
+
+Run the analyzer directly without deploying to AWS:
+
 ```bash
 # Clone
 git clone https://github.com/hamley241/aws-bill-whisperer
 cd aws-bill-whisperer
 
-# Deploy
-sam build
-sam deploy --guided
+# Install dependencies
+pip install -r src/requirements.txt
+
+# Run locally
+python cli/analyze.py --days 30
 ```
 
 ### Option 3: CLI (API)
@@ -225,7 +234,7 @@ analysis:
   
 llm:
   provider: bedrock           # Or: openai, anthropic
-  model: claude-3-sonnet      # Or: claude-3-haiku (cheaper)
+  model: claude-3-5-sonnet-20241022      # Or: claude-3-haiku (cheaper)
   
 output:
   format: markdown            # Or: json, slack, html
@@ -237,35 +246,6 @@ thresholds:
   minimum_item_dollars: 10    # Ignore items < $10
 ```
 
-## 📁 Project Structure
-
-```
-aws-bill-whisperer/
-├── README.md
-├── template.yaml              # SAM/CloudFormation
-├── samconfig.toml
-├── src/
-│   ├── analyzer/
-│   │   ├── __init__.py
-│   │   ├── handler.py         # Lambda entry point
-│   │   ├── cost_explorer.py   # AWS Cost Explorer client
-│   │   ├── llm.py             # LLM abstraction (Bedrock/OpenAI)
-│   │   ├── prompts.py         # System prompts
-│   │   ├── formatter.py       # Output formatting
-│   │   └── recommendations.py # Cost optimization rules
-│   └── requirements.txt
-├── tests/
-│   ├── test_analyzer.py
-│   └── fixtures/
-│       └── sample_cost_data.json
-├── cli/
-│   └── analyze.py             # Local CLI tool
-└── examples/
-    ├── sample_output.md
-    └── slack_integration.md
-```
-
-## 🔍 Waste Pattern Scanner
 
 The Pattern Scanner is an automated tool for detecting waste in your AWS resources, saving costs by identifying inefficiencies. It includes 7 distinct waste detection patterns, some of which can be automatically fixed.
 
@@ -356,7 +336,7 @@ AWS Bill Whisperer includes two primary tools:
 - [x] Plain English explanations
 - [x] Top cost drivers
 - [x] Simple recommendations
-- [x] CloudFormation deploy
+- [x] SAM/CloudFormation deploy
 - [x] CLI tool
 - [x] 7 waste detection patterns
 - [x] Auto-fix for safe patterns
