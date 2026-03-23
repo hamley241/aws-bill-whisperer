@@ -97,7 +97,7 @@ def _analyze_bedrock(prompt: str, model: str | None = None) -> str:
     """Call AWS Bedrock with Claude."""
     model_id = model or os.environ.get(
         "LLM_MODEL",
-        "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        "anthropic.claude-sonnet-4-6:0"
     )
 
     client = boto3.client('bedrock-runtime')

@@ -34,7 +34,7 @@ class TestLLMModelSelection:
         with patch.dict(os.environ, {}, clear=True):
             # When no env var, should use default
             default = os.environ.get("LLM_MODEL", "anthropic.claude-3-5-sonnet-20241022-v2:0")
-            assert "claude-3-5-sonnet" in default
+            assert "claude-sonnet-4" in default
 
     @patch.dict(os.environ, {"OPENAI_MODEL": "gpt-4o-mini"})
     def test_openai_model_from_env(self):

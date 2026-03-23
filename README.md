@@ -88,11 +88,11 @@ Before deploying, enable Claude in Bedrock (one-time):
 **Or CLI (automated):**
 ```bash
 aws bedrock get-foundation-model-model \
-  --model-identifier anthropic.claude-3-5-sonnet-20241022-v2:0
+  --model-identifier anthropic.claude-sonnet-4-6:0
 
 # Enable access
 aws bedrock update-model-access \
-  --model-identifier anthropic.claude-3-5-sonnet-20241022-v2:0 \
+  --model-identifier anthropic.claude-sonnet-4-6:0 \
   --model-access-status ENABLED
 ```
 
@@ -248,7 +248,7 @@ analysis:
   
 llm:
   provider: bedrock           # Or: openai, anthropic
-  model: claude-3-5-sonnet-20241022      # Or: claude-3-haiku (cheaper)
+  model: claude-sonnet-4-6              # Or: claude-sonnet-4-5, claude-3-haiku (cheaper)
   
 output:
   format: markdown            # Or: json, slack, html

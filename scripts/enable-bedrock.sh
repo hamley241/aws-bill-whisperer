@@ -4,7 +4,7 @@
 
 set -e
 
-MODEL_ID="${1:-anthropic.claude-3-5-sonnet-20241022-v2:0}"
+MODEL_ID="${1:-anthropic.claude-sonnet-4-6:0}"
 
 echo "Enabling Bedrock model: $MODEL_ID"
 
