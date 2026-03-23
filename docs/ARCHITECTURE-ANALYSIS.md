@@ -1,8 +1,5 @@
 # AWS Bill Whisperer - Architecture Analysis
 
-**Date:** March 23, 2026  
-**Author:** Rusty (AI Assistant)
-
 ---
 
 ## Executive Summary
@@ -232,5 +229,3 @@ dollar amounts drift. The goal is to find waste, not calculate precise costs.
 5. [ ] AWS Marketplace listing
 
 ---
-
-*Analysis by Rusty, March 23, 2026*
