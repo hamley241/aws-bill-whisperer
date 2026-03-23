@@ -16,7 +16,9 @@ class IdleRDSPattern(BasePattern):
     SERVICES = ["rds", "cloudwatch"]
 
     # Approximate RDS pricing per hour (varies by region and instance type)
-    # These are rough estimates for common instance types
+    # NOTE: Hardcoded pricing estimates. These are approximate us-east-1 on-demand
+    # prices as of March 2026. Actual prices vary by region, engine, and change over time.
+    # For production use, consider integrating with AWS Price List API.
     INSTANCE_HOURLY_COSTS = {
         'db.t3.micro': 0.017,
         'db.t3.small': 0.034,
@@ -54,8 +56,12 @@ class IdleRDSPattern(BasePattern):
                 rds = self.session.client('rds', region_name=region)
                 cloudwatch = self.session.client('cloudwatch', region_name=region)
 
-                # Get all RDS instances
-                instances = rds.describe_db_instances()['DBInstances']
+                # Get all RDS instances using pagination
+                # (describe_db_instances returns max 100 per call by default)
+                paginator = rds.get_paginator('describe_db_instances')
+                instances = []
+                for page in paginator.paginate():
+                    instances.extend(page['DBInstances'])
 
                 for instance in instances:
                     # Skip if not available

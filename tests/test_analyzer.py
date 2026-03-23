@@ -94,3 +94,91 @@ class TestCostExplorer:
 def test_imports():
     """Test that all modules can be imported."""
     assert True  # If we got here, imports worked
+
+
+class TestHandlerPatternIntegration:
+    """Test cases for pattern integration in handler."""
+
+    def test_run_patterns_returns_list(self):
+        """Test that _run_patterns returns a list of findings."""
+        from unittest.mock import MagicMock, patch
+        from analyzer.handler import _run_patterns
+        
+        # Mock discover_patterns to return a test pattern
+        mock_pattern_class = MagicMock()
+        mock_pattern_class.PATTERN_ID = "TEST"
+        mock_pattern_class.NAME = "Test Pattern"
+        mock_instance = MagicMock()
+        mock_pattern_class.return_value = mock_instance
+        mock_instance.scan.return_value = []
+        
+        with patch('analyzer.handler.discover_patterns', return_value=[mock_pattern_class]):
+            findings = _run_patterns(['us-east-1'])
+        
+        assert isinstance(findings, list)
+        mock_instance.scan.assert_called_once_with(regions=['us-east-1'])
+
+    def test_run_patterns_converts_findings_to_dicts(self):
+        """Test that findings are converted to serializable dicts."""
+        from unittest.mock import MagicMock, patch
+        from analyzer.handler import _run_patterns
+        from patterns.base import Finding, Severity
+        
+        # Create a mock finding
+        mock_finding = Finding(
+            resource_id='test-123',
+            resource_type='Test Resource',
+            region='us-east-1',
+            monthly_cost=10.0,
+            recommendation='Test recommendation',
+            severity=Severity.HIGH,
+            safe_to_fix=True,
+            fix_command='test command',
+            metadata={'key': 'value'}
+        )
+        
+        mock_pattern_class = MagicMock()
+        mock_pattern_class.PATTERN_ID = "001"
+        mock_pattern_class.NAME = "Test Pattern"
+        mock_instance = MagicMock()
+        mock_pattern_class.return_value = mock_instance
+        mock_instance.scan.return_value = [mock_finding]
+        
+        with patch('analyzer.handler.discover_patterns', return_value=[mock_pattern_class]):
+            findings = _run_patterns(['us-east-1'])
+        
+        assert len(findings) == 1
+        assert findings[0]['resource_id'] == 'test-123'
+        assert findings[0]['pattern_id'] == '001'
+        assert findings[0]['pattern_name'] == 'Test Pattern'
+        assert findings[0]['monthly_cost'] == 10.0
+        assert findings[0]['severity'] == 'high'
+
+    def test_run_patterns_handles_pattern_errors_gracefully(self):
+        """Test that pattern errors don't crash the handler."""
+        from unittest.mock import MagicMock, patch
+        from analyzer.handler import _run_patterns
+        
+        # Create two patterns: one that fails, one that succeeds
+        failing_pattern = MagicMock()
+        failing_pattern.PATTERN_ID = "FAIL"
+        failing_pattern.NAME = "Failing Pattern"
+        failing_instance = MagicMock()
+        failing_pattern.return_value = failing_instance
+        failing_instance.scan.side_effect = Exception("Test error")
+        
+        working_pattern = MagicMock()
+        working_pattern.PATTERN_ID = "WORK"
+        working_pattern.NAME = "Working Pattern"
+        working_instance = MagicMock()
+        working_pattern.return_value = working_instance
+        working_instance.scan.return_value = []
+        
+        with patch('analyzer.handler.discover_patterns', return_value=[failing_pattern, working_pattern]):
+            # Should not raise, should continue to working pattern
+            findings = _run_patterns(['us-east-1'])
+        
+        assert isinstance(findings, list)
+        # Both patterns were attempted
+        failing_instance.scan.assert_called_once()
+        working_instance.scan.assert_called_once()

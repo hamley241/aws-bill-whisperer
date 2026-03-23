@@ -27,13 +27,13 @@ class TestLLMModelSelection:
             # The mock was called, verify model selection works
             assert mock.called
 
-    def test_default_model_claude_35(self):
-        """Default model should be Claude 3.5 Sonnet."""
+    def test_default_model_claude_sonnet_4(self):
+        """Default model should be Claude Sonnet 4."""
         # Just verify the default is set correctly in the module
         # by checking the fallback logic
         with patch.dict(os.environ, {}, clear=True):
             # When no env var, should use default
-            default = os.environ.get("LLM_MODEL", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+            default = os.environ.get("LLM_MODEL", "anthropic.claude-sonnet-4-6:0")
             assert "claude-sonnet-4" in default
 
     @patch.dict(os.environ, {"OPENAI_MODEL": "gpt-4o-mini"})

@@ -22,14 +22,23 @@ List the top 5 services by spend with:
 - Services with decreases
 - Any anomalies or spikes
 
-### 4. Actionable Recommendations
+### 4. Detected Waste (from automated scans)
+If `waste_findings` is present in the data, summarize:
+- Group findings by pattern type (e.g., "Idle EC2", "Old Snapshots")
+- Highlight HIGH/CRITICAL severity items first
+- Total potential monthly savings from waste findings
+- Include specific resource IDs for actionable items
+
+### 5. Actionable Recommendations
 Provide 3-5 specific, actionable recommendations:
+- Incorporate waste findings into recommendations where applicable
 - Be specific (e.g., "Terminate these 3 stopped EC2 instances" not "Review EC2")
 - Include estimated savings where possible
 - Prioritize by impact
 
-### 5. Potential Savings Summary
+### 6. Potential Savings Summary
 - Total estimated monthly savings if recommendations followed
+- Break down by: waste cleanup vs. optimization opportunities
 
 ## Formatting:
 - Use markdown formatting

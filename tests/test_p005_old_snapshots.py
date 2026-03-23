@@ -28,7 +28,11 @@ class TestOldSnapshotsPattern:
         mock_session.client.return_value = mock_ec2
         
         old_date = datetime.now(timezone.utc) - timedelta(days=100)
-        mock_ec2.describe_snapshots.return_value = {
+        
+        # Mock paginator for describe_snapshots
+        mock_paginator = MagicMock()
+        mock_ec2.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
             'Snapshots': [{
                 'SnapshotId': 'snap-old',
                 'StartTime': old_date,
@@ -36,7 +40,7 @@ class TestOldSnapshotsPattern:
                 'Description': 'old backup',
                 'VolumeId': 'vol-123',
             }]
-        }
+        }]
         mock_ec2.describe_images.return_value = {'Images': []}  # Not in any AMI
         
         pattern = OldSnapshotsPattern(session=mock_session)
@@ -62,7 +66,11 @@ class TestOldSnapshotsPattern:
         mock_session.client.return_value = mock_ec2
         
         recent_date = datetime.now(timezone.utc) - timedelta(days=30)
-        mock_ec2.describe_snapshots.return_value = {
+        
+        # Mock paginator for describe_snapshots
+        mock_paginator = MagicMock()
+        mock_ec2.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
             'Snapshots': [{
                 'SnapshotId': 'snap-recent',
                 'StartTime': recent_date,
@@ -70,7 +78,7 @@ class TestOldSnapshotsPattern:
                 'Description': 'recent backup',
                 'VolumeId': 'vol-123',
             }]
-        }
+        }]
         
         pattern = OldSnapshotsPattern(session=mock_session)
         pattern.get_all_regions = lambda: ['us-east-1']
@@ -93,7 +101,11 @@ class TestOldSnapshotsPattern:
         mock_session.client.return_value = mock_ec2
         
         mid_date = datetime.now(timezone.utc) - timedelta(days=45)
-        mock_ec2.describe_snapshots.return_value = {
+        
+        # Mock paginator for describe_snapshots
+        mock_paginator = MagicMock()
+        mock_ec2.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
             'Snapshots': [{
                 'SnapshotId': 'snap-mid',
                 'StartTime': mid_date,
@@ -101,7 +113,7 @@ class TestOldSnapshotsPattern:
                 'Description': 'mid-age backup',
                 'VolumeId': 'vol-123',
             }]
-        }
+        }]
         mock_ec2.describe_images.return_value = {'Images': []}
         
         pattern = OldSnapshotsPattern(session=mock_session, threshold_days=30)
@@ -125,7 +137,11 @@ class TestOldSnapshotsPattern:
         mock_session.client.return_value = mock_ec2
         
         old_date = datetime.now(timezone.utc) - timedelta(days=100)
-        mock_ec2.describe_snapshots.return_value = {
+        
+        # Mock paginator for describe_snapshots
+        mock_paginator = MagicMock()
+        mock_ec2.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
             'Snapshots': [{
                 'SnapshotId': 'snap-ami',
                 'StartTime': old_date,
@@ -133,7 +149,7 @@ class TestOldSnapshotsPattern:
                 'Description': 'ami backup',
                 'VolumeId': 'vol-123',
             }]
-        }
+        }]
         # Snapshot IS used by an AMI
         mock_ec2.describe_images.return_value = {
             'Images': [{'ImageId': 'ami-123', 'BlockDeviceMappings': [
@@ -151,6 +167,69 @@ class TestOldSnapshotsPattern:
         assert len(findings) == 1
         assert findings[0].safe_to_fix is False
 
+    def test_handles_pagination_over_1000_snapshots(self):
+        """
+        GIVEN: An AWS account with more than 1000 snapshots (requiring pagination)
+        WHEN: The pattern scans
+        THEN: It processes ALL snapshots across all pages
+        
+        Bug fix: describe_snapshots(MaxResults=1000) silently misses snapshots
+        beyond 1000. Use paginator instead.
+        """
+        # GIVEN
+        mock_session = MagicMock()
+        mock_ec2 = MagicMock()
+        mock_session.client.return_value = mock_ec2
+        
+        old_date = datetime.now(timezone.utc) - timedelta(days=100)
+        
+        # Create 1500 snapshots across 2 pages
+        page1_snapshots = [
+            {
+                'SnapshotId': f'snap-page1-{i}',
+                'StartTime': old_date,
+                'VolumeSize': 10,
+                'Description': f'snapshot {i}',
+                'VolumeId': f'vol-{i}',
+            }
+            for i in range(1000)
+        ]
+        page2_snapshots = [
+            {
+                'SnapshotId': f'snap-page2-{i}',
+                'StartTime': old_date,
+                'VolumeSize': 10,
+                'Description': f'snapshot {1000 + i}',
+                'VolumeId': f'vol-{1000 + i}',
+            }
+            for i in range(500)
+        ]
+        
+        # Mock paginator
+        mock_paginator = MagicMock()
+        mock_ec2.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [
+            {'Snapshots': page1_snapshots},
+            {'Snapshots': page2_snapshots},
+        ]
+        
+        mock_ec2.describe_images.return_value = {'Images': []}  # No AMIs
+        
+        pattern = OldSnapshotsPattern(session=mock_session)
+        pattern.get_all_regions = lambda: ['us-east-1']
+        
+        # WHEN
+        findings = pattern.scan()
+        
+        # THEN - should find all 1500 snapshots
+        assert len(findings) == 1500
+        # Verify we got snapshots from both pages
+        snapshot_ids = {f.resource_id for f in findings}
+        assert 'snap-page1-0' in snapshot_ids
+        assert 'snap-page1-999' in snapshot_ids
+        assert 'snap-page2-0' in snapshot_ids
+        assert 'snap-page2-499' in snapshot_ids
+
     def test_calculates_total_savings(self):
         """
         GIVEN: Multiple old snapshots totaling 500GB
@@ -163,13 +242,17 @@ class TestOldSnapshotsPattern:
         mock_session.client.return_value = mock_ec2
         
         old_date = datetime.now(timezone.utc) - timedelta(days=100)
-        mock_ec2.describe_snapshots.return_value = {
+        
+        # Mock paginator for describe_snapshots
+        mock_paginator = MagicMock()
+        mock_ec2.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
             'Snapshots': [
                 {'SnapshotId': 'snap-1', 'StartTime': old_date, 'VolumeSize': 100, 'Description': '', 'VolumeId': 'vol-1'},
                 {'SnapshotId': 'snap-2', 'StartTime': old_date, 'VolumeSize': 200, 'Description': '', 'VolumeId': 'vol-2'},
                 {'SnapshotId': 'snap-3', 'StartTime': old_date, 'VolumeSize': 200, 'Description': '', 'VolumeId': 'vol-3'},
             ]
-        }
+        }]
         mock_ec2.describe_images.return_value = {'Images': []}
         
         pattern = OldSnapshotsPattern(session=mock_session)

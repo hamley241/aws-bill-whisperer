@@ -428,6 +428,58 @@ class TestIdleEC2Pattern:
         assert costs['i-t3-micro'] == 0.0104  # t3.micro hourly cost
         assert costs['i-m5-large'] == 0.096  # m5.large hourly cost
 
+    def test_handles_aware_datetime_launch_time(self):
+        """
+        GIVEN: An EC2 instance with an aware datetime (tzinfo already set)
+        WHEN: The pattern scans
+        THEN: It handles the datetime correctly without exception
+        
+        Bug fix: launch_time.replace(tzinfo=timezone.utc) throws if launch_time
+        already has tzinfo. Use astimezone() instead.
+        """
+        # GIVEN
+        mock_session = MagicMock()
+        mock_ec2 = MagicMock()
+        mock_cw = MagicMock()
+        
+        def mock_client(service, **kwargs):
+            if service == 'ec2':
+                return mock_ec2
+            return mock_cw
+        
+        mock_session.client.side_effect = mock_client
+        
+        # Boto3 returns aware datetimes with UTC timezone
+        launch_time = datetime.now(timezone.utc) - timedelta(days=30)  # Already has tzinfo
+        mock_paginator = MagicMock()
+        mock_ec2.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
+            'Reservations': [{
+                'Instances': [{
+                    'InstanceId': 'i-aware-tz',
+                    'InstanceType': 't3.medium',
+                    'Platform': 'Linux/UNIX',
+                    'LaunchTime': launch_time,  # Aware datetime
+                    'Tags': [{'Key': 'Name', 'Value': 'aware-tz-server'}]
+                }]
+            }]
+        }]
+        
+        # CloudWatch returns low CPU
+        mock_cw.get_metric_statistics.return_value = {
+            'Datapoints': [{'Average': 2.0}]
+        }
+        
+        pattern = IdleEC2Pattern(session=mock_session)
+        pattern.get_all_regions = lambda: ['us-east-1']
+        
+        # WHEN - should not raise an exception
+        findings = pattern.scan()
+        
+        # THEN
+        assert len(findings) == 1
+        assert findings[0].resource_id == 'i-aware-tz'
+
     def test_handles_api_error_gracefully(self):
         """
         GIVEN: AWS API throws an error during scan

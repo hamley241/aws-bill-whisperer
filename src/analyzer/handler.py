@@ -10,6 +10,16 @@ from .cost_explorer import get_full_analysis
 from .formatter import to_json, to_markdown, to_slack
 from .llm import analyze_costs
 
+# Import pattern discovery
+# Use absolute import since this module may be run as Lambda handler
+import sys
+from pathlib import Path
+# Add parent directory to path if needed for patterns import
+_src_dir = Path(__file__).parent.parent
+if str(_src_dir) not in sys.path:
+    sys.path.insert(0, str(_src_dir))
+from patterns import discover_patterns
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -46,6 +56,12 @@ def lambda_handler(event: dict[str, Any], context) -> dict[str, Any]:
         cost_data = get_full_analysis(days)
         logger.info(f"Total cost: ${cost_data['usage']['total']:,.2f}")
 
+        # Run waste detection patterns
+        logger.info("Running waste detection patterns...")
+        waste_findings = _run_patterns(event.get('regions'))
+        cost_data['waste_findings'] = waste_findings
+        logger.info(f"Found {len(waste_findings)} waste findings across all patterns")
+
         # Analyze with LLM
         logger.info(f"Analyzing with {provider}...")
         analysis = analyze_costs(cost_data, provider=provider)
@@ -78,6 +94,43 @@ def lambda_handler(event: dict[str, Any], context) -> dict[str, Any]:
                 'message': 'Cost analysis failed. Check CloudWatch logs for details.'
             })
         }
+
+
+def _run_patterns(regions: list[str] = None) -> list[dict]:
+    """Run all waste detection patterns and return findings as dicts."""
+    all_findings = []
+    
+    # Default to common US regions if not specified
+    if not regions:
+        regions = ['us-east-1', 'us-west-2']
+    
+    for PatternClass in discover_patterns():
+        try:
+            pattern = PatternClass()
+            findings = pattern.scan(regions=regions)
+            
+            # Convert findings to dicts for JSON serialization
+            for finding in findings:
+                finding_dict = {
+                    'pattern_id': PatternClass.PATTERN_ID,
+                    'pattern_name': PatternClass.NAME,
+                    'resource_id': finding.resource_id,
+                    'resource_type': finding.resource_type,
+                    'region': finding.region,
+                    'monthly_cost': finding.monthly_cost,
+                    'recommendation': finding.recommendation,
+                    'severity': finding.severity.value if hasattr(finding.severity, 'value') else str(finding.severity),
+                    'safe_to_fix': finding.safe_to_fix,
+                    'fix_command': finding.fix_command,
+                    'metadata': finding.metadata or {},
+                }
+                all_findings.append(finding_dict)
+                
+        except Exception as e:
+            logger.warning(f"Pattern {PatternClass.PATTERN_ID} failed: {e}")
+            continue
+    
+    return all_findings
 
 
 def _send_to_slack(webhook_url: str, analysis: str, cost_data: dict) -> None:

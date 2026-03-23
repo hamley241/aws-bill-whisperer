@@ -49,7 +49,8 @@ class TestGP2ToGP3Pattern:
         # THEN
         assert len(findings) == 1
         assert findings[0].resource_id == 'vol-gp2-test'
-        assert findings[0].monthly_cost == 1.0  # 20% savings on 100GB * $0.10 * 0.5
+        # 100GB * $0.10/GB = $10/mo, 20% savings = $2/mo
+        assert findings[0].monthly_cost == 2.0
         assert findings[0].safe_to_fix is True
         assert 'gp3' in findings[0].recommendation
         assert findings[0].metadata['current_type'] == 'gp2'
@@ -300,6 +301,49 @@ class TestGP2ToGP3Pattern:
         
         # THEN
         assert len(findings) == 0  # Graceful handling of error
+
+    def test_savings_calculation_is_correct(self):
+        """
+        GIVEN: A gp2 volume of known size
+        WHEN: The pattern calculates potential savings
+        THEN: Savings = monthly_cost * SAVINGS_RATE (20%)
+        
+        Bug fix: The original code had `* 0.5` which halved the savings incorrectly.
+        """
+        # GIVEN
+        mock_session = MagicMock()
+        mock_ec2 = MagicMock()
+        mock_session.client.return_value = mock_ec2
+        
+        mock_paginator = MagicMock()
+        mock_ec2.get_paginator.return_value = mock_paginator
+        
+        # 500GB gp2 volume
+        mock_paginator.paginate.return_value = [{
+            'Volumes': [{
+                'VolumeId': 'vol-savings-test',
+                'Size': 500,  # 500GB
+                'VolumeType': 'gp2',
+                'State': 'in-use',
+                'Iops': 1500,
+                'Attachments': []
+            }]
+        }]
+        
+        pattern = GP2ToGP3Pattern(session=mock_session)
+        pattern.get_all_regions = lambda: ['us-east-1']
+        
+        # WHEN
+        findings = pattern.scan()
+        
+        # THEN
+        assert len(findings) == 1
+        
+        # Monthly cost for 500GB gp2 = 500 * $0.10 = $50
+        # Savings at 20% = $50 * 0.20 = $10
+        assert findings[0].metadata['current_monthly_cost'] == 50.0
+        assert findings[0].metadata['potential_savings'] == 10.0
+        assert findings[0].monthly_cost == 10.0  # This is the savings amount
 
     def test_metadata_contains_all_required_fields(self):
         """

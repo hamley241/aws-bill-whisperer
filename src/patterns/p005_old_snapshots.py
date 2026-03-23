@@ -31,11 +31,12 @@ class OldSnapshotsPattern(BasePattern):
             try:
                 ec2 = self.session.client('ec2', region_name=region)
 
-                # Get all snapshots owned by this account
-                snapshots = ec2.describe_snapshots(
-                    OwnerIds=['self'],
-                    MaxResults=1000  # Pagination might be needed for large accounts
-                )['Snapshots']
+                # Get all snapshots owned by this account using pagination
+                # (describe_snapshots returns max 1000 per call, so use paginator)
+                paginator = ec2.get_paginator('describe_snapshots')
+                snapshots = []
+                for page in paginator.paginate(OwnerIds=['self']):
+                    snapshots.extend(page['Snapshots'])
 
                 # Get all AMIs to check if snapshot is in use
                 amis = ec2.describe_images(Owners=['self'])['Images']

@@ -34,7 +34,10 @@ class TestIdleRDSPattern:
         
         mock_session.client.side_effect = mock_client
         
-        mock_rds.describe_db_instances.return_value = {
+        # Mock paginator for describe_db_instances
+        mock_paginator = MagicMock()
+        mock_rds.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
             'DBInstances': [{
                 'DBInstanceIdentifier': 'dev-db',
                 'DBInstanceClass': 'db.t3.medium',
@@ -44,7 +47,7 @@ class TestIdleRDSPattern:
                 'AvailabilityZone': 'us-east-1a',
                 'InstanceCreateTime': datetime.now(timezone.utc) - timedelta(days=30),
             }]
-        }
+        }]
         
         # CloudWatch returns low metrics
         mock_cw.get_metric_statistics.return_value = {
@@ -79,7 +82,10 @@ class TestIdleRDSPattern:
         
         mock_session.client.side_effect = mock_client
         
-        mock_rds.describe_db_instances.return_value = {
+        # Mock paginator for describe_db_instances
+        mock_paginator = MagicMock()
+        mock_rds.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
             'DBInstances': [{
                 'DBInstanceIdentifier': 'prod-db',
                 'DBInstanceClass': 'db.r5.large',
@@ -88,7 +94,7 @@ class TestIdleRDSPattern:
                 'MultiAZ': True,
                 'AvailabilityZone': 'us-east-1a',
             }]
-        }
+        }]
         
         # CloudWatch returns high activity
         mock_cw.get_metric_statistics.return_value = {
@@ -122,7 +128,10 @@ class TestIdleRDSPattern:
         
         mock_session.client.side_effect = mock_client
         
-        mock_rds.describe_db_instances.return_value = {
+        # Mock paginator for describe_db_instances
+        mock_paginator = MagicMock()
+        mock_rds.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
             'DBInstances': [{
                 'DBInstanceIdentifier': 'multi-az-db',
                 'DBInstanceClass': 'db.t3.medium',
@@ -132,7 +141,7 @@ class TestIdleRDSPattern:
                 'AvailabilityZone': 'us-east-1a',
                 'InstanceCreateTime': datetime.now(timezone.utc) - timedelta(days=30),
             }]
-        }
+        }]
         
         mock_cw.get_metric_statistics.return_value = {
             'Datapoints': [{'Average': 0.5}]
@@ -167,7 +176,10 @@ class TestIdleRDSPattern:
         
         mock_session.client.side_effect = mock_client
         
-        mock_rds.describe_db_instances.return_value = {
+        # Mock paginator for describe_db_instances
+        mock_paginator = MagicMock()
+        mock_rds.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
             'DBInstances': [{
                 'DBInstanceIdentifier': 'stopped-db',
                 'DBInstanceClass': 'db.t3.medium',
@@ -176,7 +188,7 @@ class TestIdleRDSPattern:
                 'MultiAZ': False,
                 'AvailabilityZone': 'us-east-1a',
             }]
-        }
+        }]
         
         pattern = IdleRDSPattern(session=mock_session)
         pattern.get_all_regions = lambda: ['us-east-1']
@@ -186,6 +198,82 @@ class TestIdleRDSPattern:
         
         # THEN
         assert len(findings) == 0
+
+    def test_handles_pagination_over_100_instances(self):
+        """
+        GIVEN: An AWS account with more than 100 RDS instances (requiring pagination)
+        WHEN: The pattern scans
+        THEN: It processes ALL instances across all pages
+        
+        Bug fix: describe_db_instances() returns max 100 by default, truncates silently.
+        Use paginator instead.
+        """
+        # GIVEN
+        mock_session = MagicMock()
+        mock_rds = MagicMock()
+        mock_cw = MagicMock()
+        
+        def mock_client(service, **kwargs):
+            if service == 'rds':
+                return mock_rds
+            return mock_cw
+        
+        mock_session.client.side_effect = mock_client
+        
+        # Create 150 instances across 2 pages (all idle)
+        create_time = datetime.now(timezone.utc) - timedelta(days=30)
+        page1_instances = [
+            {
+                'DBInstanceIdentifier': f'dev-db-{i}',
+                'DBInstanceClass': 'db.t3.medium',
+                'Engine': 'mysql',
+                'DBInstanceStatus': 'available',
+                'MultiAZ': False,
+                'AvailabilityZone': 'us-east-1a',
+                'InstanceCreateTime': create_time,
+            }
+            for i in range(100)
+        ]
+        page2_instances = [
+            {
+                'DBInstanceIdentifier': f'dev-db-{i}',
+                'DBInstanceClass': 'db.t3.medium',
+                'Engine': 'mysql',
+                'DBInstanceStatus': 'available',
+                'MultiAZ': False,
+                'AvailabilityZone': 'us-east-1a',
+                'InstanceCreateTime': create_time,
+            }
+            for i in range(100, 150)
+        ]
+        
+        # Mock paginator
+        mock_paginator = MagicMock()
+        mock_rds.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [
+            {'DBInstances': page1_instances},
+            {'DBInstances': page2_instances},
+        ]
+        
+        # CloudWatch returns low metrics (all idle)
+        mock_cw.get_metric_statistics.return_value = {
+            'Datapoints': [{'Average': 0.5}]
+        }
+        
+        pattern = IdleRDSPattern(session=mock_session)
+        pattern.get_all_regions = lambda: ['us-east-1']
+        
+        # WHEN
+        findings = pattern.scan()
+        
+        # THEN - should find all 150 instances
+        assert len(findings) == 150
+        # Verify we got instances from both pages
+        instance_ids = {f.resource_id for f in findings}
+        assert 'dev-db-0' in instance_ids
+        assert 'dev-db-99' in instance_ids
+        assert 'dev-db-100' in instance_ids
+        assert 'dev-db-149' in instance_ids
 
     def test_severity_high_for_expensive_idle_db(self):
         """
@@ -205,7 +293,10 @@ class TestIdleRDSPattern:
         
         mock_session.client.side_effect = mock_client
         
-        mock_rds.describe_db_instances.return_value = {
+        # Mock paginator for describe_db_instances
+        mock_paginator = MagicMock()
+        mock_rds.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
             'DBInstances': [{
                 'DBInstanceIdentifier': 'expensive-idle-db',
                 'DBInstanceClass': 'db.r5.2xlarge',  # Expensive
@@ -215,7 +306,7 @@ class TestIdleRDSPattern:
                 'AvailabilityZone': 'us-east-1a',
                 'InstanceCreateTime': datetime.now(timezone.utc) - timedelta(days=30),
             }]
-        }
+        }]
         
         mock_cw.get_metric_statistics.return_value = {
             'Datapoints': [{'Average': 0.0}]

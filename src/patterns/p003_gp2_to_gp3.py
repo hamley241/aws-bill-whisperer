@@ -39,7 +39,8 @@ class GP2ToGP3Pattern(BasePattern):
 
                         # Calculate current monthly cost
                         monthly_cost = size_gb * self.GP2_PRICE
-                        potential_savings = monthly_cost * self.SAVINGS_RATE * 0.5  # 20% of current cost
+                        # Savings = 20% of current cost (GP2 is $0.10/GB, GP3 is $0.08/GB)
+                        potential_savings = monthly_cost * self.SAVINGS_RATE
 
                         # Determine if gp3 is suitable
                         can_migrate = self._can_migrate_to_gp3(vol)

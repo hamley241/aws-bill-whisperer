@@ -49,8 +49,12 @@ class IdleEC2Pattern(BasePattern):
                     name = tags.get("Name", "N/A")
 
                     # Skip if instance is less than 14 days old (avoid false positives for new instances)
-                    if launch_time and (datetime.now(timezone.utc) - launch_time.replace(tzinfo=timezone.utc)).days < self.LOOKBACK_DAYS:
-                        continue
+                    # Use astimezone() instead of replace() to handle both aware and naive datetimes
+                    # (boto3 returns aware datetimes, but replace() throws if tzinfo is already set)
+                    if launch_time:
+                        launch_time_utc = launch_time.astimezone(timezone.utc) if launch_time.tzinfo else launch_time.replace(tzinfo=timezone.utc)
+                        if (datetime.now(timezone.utc) - launch_time_utc).days < self.LOOKBACK_DAYS:
+                            continue
 
                     # Get CPU utilization metrics
                     avg_cpu = self._get_avg_cpu(cloudwatch, instance_id, start_time, end_time)
@@ -135,7 +139,13 @@ class IdleEC2Pattern(BasePattern):
             return None
 
     def _get_instance_monthly_cost(self, instance_type: str, region: str) -> float:
-        """Get estimated hourly cost for an instance type."""
+        """Get estimated hourly cost for an instance type.
+        
+        NOTE: Hardcoded pricing estimates. These are approximate us-east-1 on-demand
+        prices as of March 2026. Actual prices vary by region and change over time.
+        For production use, consider integrating with AWS Price List API or
+        maintaining a pricing database.
+        """
         # Simplified pricing estimates (on-demand, varies by region)
         # These are approximate prices for us-east-1
         hourly_costs = {
