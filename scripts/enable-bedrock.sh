@@ -1,25 +1,22 @@
 #!/bin/bash
 # Enable Bedrock model access for AWS Bill Whisperer
-# Run this once per AWS account before first deployment
+# Most models auto-enable on first use.
+#
+# For Anthropic models, you may need to:
+# 1. Go to AWS Console → Amazon Bedrock → Model access
+# 2. Enable "Claude Sonnet 4.6"
+#
+# Or simply deploy and run - the API call will auto-enable.
 
 set -e
 
 MODEL_ID="${1:-anthropic.claude-sonnet-4-6:0}"
 
-echo "Enabling Bedrock model: $MODEL_ID"
-
-# Check if already enabled
-STATUS=$(aws bedrock get-foundation-model-model --model-identifier "$MODEL_ID" --query 'modelSummary.modelAccessStatus' --output text 2>/dev/null || echo "NOT_FOUND")
-
-if [ "$STATUS" = "ENABLED" ]; then
-    echo "✓ Model already enabled"
-    exit 0
-fi
-
-# Enable the model
-echo "Enabling model..."
-aws bedrock update-model-access \
-    --model-identifier "$MODEL_ID" \
-    --model-access-status ENABLED
-
-echo "✓ Model enabled successfully"
+echo "Model: $MODEL_ID"
+echo ""
+echo "To enable model access:"
+echo "1. Go to: https://console.aws.amazon.com/bedrock#/modelaccess"
+echo "2. Find 'Claude Sonnet 4.6' and click 'Edit'"
+echo "3. Enable the model and save"
+echo ""
+echo "Or simply run 'sam deploy' - it will auto-enable on first invocation."

@@ -79,22 +79,14 @@ sam deploy --guided
 
 ### Enable Bedrock Model Access
 
-Before deploying, enable Claude in Bedrock (one-time):
-
-**Console:**
+**Option 1: Console (easiest)**
 1. Go to AWS Console → Amazon Bedrock → Model access
-2. Enable `Claude 3.5 Sonnet`
+2. Enable `Claude Sonnet 4.6`
 
-**Or CLI (automated):**
-```bash
-aws bedrock get-foundation-model-model \
-  --model-identifier anthropic.claude-sonnet-4-6:0
+**Option 2: Auto-enable on first use**
+The model auto-enables when you first invoke it. Just deploy and run — if not enabled, it will prompt you in the console.
 
-# Enable access
-aws bedrock update-model-access \
-  --model-identifier anthropic.claude-sonnet-4-6:0 \
-  --model-access-status ENABLED
-```
+**Note:** Anthropic models require a one-time "First Time Use" form in the console before first invocation.
 
 ### Option 2: Local Development
 
