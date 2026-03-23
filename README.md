@@ -35,15 +35,79 @@ whisper scan --patterns all
 
 ## Installation
 
-See [docs/INSTALL.md](docs/INSTALL.md) for detailed setup.
+
+<!-- Included from: docs/INSTALL.md -->
+# Installation
+
+## Requirements
+
+- Python 3.10+
+- AWS credentials with Cost Explorer access
+
+## pip install
+
+```bash
+pip install aws-bill-whisperer
+```
+
+## From Source
+
+```bash
+git clone https://github.com/gpclaws/aws-bill-whisperer
+cd aws-bill-whisperer
+pip install -e .
+```
+
+<!-- End include: docs/INSTALL.md -->
+
 
 ## Usage
 
-See [docs/USAGE.md](docs/USAGE.md) for full CLI reference.
 
-## Architecture
+<!-- Included from: docs/USAGE.md -->
+# Usage
 
-See [docs/ARCHITECTURE-ANALYSIS.md](docs/ARCHITECTURE-ANALYSIS.md) for technical details.
+## CLI
+
+### Analyze costs
+
+```bash
+whisper analyze --days 30
+```
+
+### Scan for waste
+
+```bash
+whisper scan --patterns all --regions us-east-1
+```
+
+### Combined analysis
+
+```bash
+whisper full --output markdown
+```
+
+## Programmatic
+
+```python
+from whisperer import CostAnalyzer
+
+analyzer = CostAnalyzer()
+results = analyzer.analyze(days=30)
+print(results.summary)
+```
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `AWS_ACCESS_KEY_ID` | AWS access key |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key |
+| `AWS_REGION` | Default region |
+| `LLM_PROVIDER` | bedrock or openai |
+
+<!-- End include: docs/USAGE.md -->
+
 
 ## License
 
