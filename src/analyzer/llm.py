@@ -95,7 +95,10 @@ def _format_cost_data_for_llm(cost_data: dict) -> str:
 
 def _analyze_bedrock(prompt: str, model: str | None = None) -> str:
     """Call AWS Bedrock with Claude."""
-    model_id = model or "anthropic.claude-3-sonnet-20240229-v1:0"
+    model_id = model or os.environ.get(
+        "LLM_MODEL",
+        "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    )
 
     client = boto3.client('bedrock-runtime')
 
@@ -142,7 +145,7 @@ def _analyze_openai(prompt: str, model: str | None = None) -> str:
     if not api_key:
         raise ValueError("OPENAI_API_KEY environment variable required for OpenAI provider")
 
-    model_id = model or "gpt-4o"
+    model_id = model or os.environ.get("OPENAI_MODEL", "gpt-4o")
     client = openai.OpenAI(api_key=api_key)
 
     try:

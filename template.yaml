@@ -22,6 +22,7 @@ Resources:
       Environment:
         Variables:
           LLM_PROVIDER: !Ref LlmProvider
+          LLM_MODEL: !Ref LlmModel
           SLACK_WEBHOOK: !Ref SlackWebhook
           ANALYSIS_DAYS: !Ref AnalysisDays
 
@@ -32,6 +33,10 @@ Parameters:
     AllowedValues:
       - bedrock
       - openai
+
+  LlmModel:
+    Type: String
+    Default: "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
   SlackWebhook:
     Type: String

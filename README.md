@@ -77,6 +77,25 @@ sam build
 sam deploy --guided
 ```
 
+### Enable Bedrock Model Access
+
+Before deploying, enable Claude in Bedrock (one-time):
+
+**Console:**
+1. Go to AWS Console → Amazon Bedrock → Model access
+2. Enable `Claude 3.5 Sonnet`
+
+**Or CLI (automated):**
+```bash
+aws bedrock get-foundation-model-model \
+  --model-identifier anthropic.claude-3-5-sonnet-20241022-v2:0
+
+# Enable access
+aws bedrock update-model-access \
+  --model-identifier anthropic.claude-3-5-sonnet-20241022-v2:0 \
+  --model-access-status ENABLED
+```
+
 ### Option 2: Local Development
 
 Run the analyzer directly without deploying to AWS:
