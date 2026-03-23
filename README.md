@@ -1,377 +1,336 @@
 # AWS Bill Whisperer
 
-> **The self-hosted, privacy-first AWS cost analyzer.**
-> Your billing data never leaves your account.
 
-Most AWS cost tools are SaaS platforms that require access to your billing data. For security-conscious teams, regulated industries, or anyone with strict data governance — **that's a non-starter.**
+<!-- Included from: docs/ARCHITECTURE-ANALYSIS.md -->
+# AWS Bill Whisperer - Architecture Analysis
 
-AWS Bill Whisperer is different: it runs **100% inside your AWS account**. Deploy via CloudFormation, get AI-powered cost explanations via Bedrock. Your data stays yours.
-
----
-
-## 🔐 Why Bill Whisperer?
-
-| | Bill Whisperer | SaaS Tools (Vantage, etc.) |
-|--|----------------|----------------------------|
-| **Where data lives** | Your AWS account | Third-party infrastructure |
-| **Who sees your costs** | Only you | Vendor + their infra |
-| **Monthly cost** | ~$1-5 (AWS charges) | $30-200+ subscription |
-| **Customization** | Fork it (MIT license) | Limited |
-| **Vendor lock-in** | None | Yes |
+**Date:** March 23, 2026  
+**Author:** Rusty (AI Assistant)
 
 ---
 
-## 🏥 Regulated Industries (Healthcare, Finance, Government)
+## Executive Summary
 
-For organizations operating under **HIPAA**, **SOC 2**, **FedRAMP**, or **data residency requirements**, sending billing data to third-party SaaS platforms often requires legal review, BAAs, or is simply prohibited by policy. Bill Whisperer eliminates this friction entirely — your cost data never leaves your AWS account, Bedrock runs in your region, and you maintain full audit control. This makes it ideal for health systems, financial institutions, and government contractors who need cost visibility without compliance headaches.
+AWS Bill Whisperer has two well-built systems that aren't connected:
+1. **Pattern Scanner** — Detects waste (EBS, EC2, NAT, RDS)
+2. **Cost Analyzer** — Fetches Cost Explorer + Bedrock analysis
+
+The AI layer exists but only sees aggregate data, not the pattern findings.
 
 ---
 
-## 🎯 What It Does
+## System Architecture
 
-1. Reads your AWS Cost & Usage data
-2. Analyzes with AI (Claude via Bedrock)
-3. Explains in plain English:
-   - Why your bill changed
-   - Top cost drivers
-   - Actionable recommendations
+### 1. Pattern System (`src/patterns/`)
 
-## 🏗️ Architecture
+**7 patterns implemented:**
 
+| ID | Pattern | Complexity | Safe Fix? |
+|----|---------|------------|-----------|
+| 001 | Unattached EBS | Easy | ✅ (if snapshot exists) |
+| 002 | Unattached EIP | Easy | ✅ |
+| 003 | GP2 → GP3 | Easy | ✅ |
+| 004 | Idle EC2 (<5% CPU) | Medium | ❌ (manual) |
+| 005 | Old Snapshots | Easy | ✅ |
+| 006 | NAT Gateway | Medium | ❌ (manual) |
+| 007 | Idle RDS | Medium | ❌ (manual) |
+
+**Strengths:**
+- Clean `BasePattern` ABC with auto-discovery
+- Adding new pattern = drop a file in `patterns/`
+- Safety-first: `safe_to_fix` flag prevents accidents
+- Rich metadata: age, tags, costs, fix commands
+- Real AWS pricing (not placeholders)
+- Multi-region scanning
+
+**Gaps:**
+- No CUR integration (queries live APIs)
+- Limited coverage (~30% of common waste)
+- Missing: S3 lifecycle, Lambda sizing, RI/SP, cross-AZ traffic
+
+### 2. Analyzer System (`src/analyzer/`)
+
+| Component | Purpose |
+|-----------|---------|
+| `cost_explorer.py` | Fetches Cost Explorer API: usage, daily, regional, comparison |
+| `llm.py` | Calls Bedrock (Claude) or OpenAI |
+| `prompts.py` | Analysis, anomaly, recommendation prompts |
+| `handler.py` | Lambda entry point |
+| `formatter.py` | Output: markdown, JSON, Slack |
+
+**Flow:**
 ```
-Your AWS Account
-├── Lambda Function (analyzer)
-├── Cost Explorer API access
-├── Bedrock Claude (or external LLM)
-├── S3 bucket (optional: CUR data)
-└── EventBridge (scheduled runs)
-
-Output options:
-├── Slack message
-├── Email (SES)
-├── S3 report
-└── CLI stdout
+Lambda → Cost Explorer API → Format → Bedrock/Claude → Markdown → Slack/return
 ```
 
-## 💰 Your Cost
+**Prompts ask for:**
+1. Executive summary
+2. Top cost drivers
+3. What changed
+4. Actionable recommendations
+5. Potential savings
 
-Running in your account: **~$1-5/month**
-- Lambda: ~$0.50 (few invocations)
-- Bedrock Claude: ~$1-3 (depending on bill size)
-- S3: negligible
+**Strengths:**
+- Comprehensive Cost Explorer data (usage, daily, regional, comparison)
+- Good prompt engineering
+- Slack integration
+- OpenAI fallback
 
-## 🚀 Quick Start
+**Gaps:**
+- One-shot analysis (not conversational)
+- No natural language queries
+- No CUR integration (limited granularity)
 
-### Option 1: SAM Deploy (Recommended)
+---
 
-[![Deploy to AWS](https://img.shields.io/badge/Deploy%20to-AWS-orange?logo=amazon-aws)](https://console.aws.amazon.com/cloudformation/home#/stacks/create/render?templateURL=https://raw.githubusercontent.com/hamley241/aws-bill-whisperer/main/template.yaml)
+## The Missing Bridge
 
-Or deploy manually:
+**Pattern findings don't reach the AI.**
+
+Current:
+```
+Patterns → Finding objects → (nowhere)
+Analyzer → Cost Explorer → Bedrock → Report
+```
+
+Should be:
+```
+Patterns → Finding objects ──┐
+                             ├──→ Bedrock → Enriched Report
+Analyzer → Cost Explorer ────┘
+```
+
+---
+
+## Recommendations
+
+### Priority 1: Connect Patterns to AI
+
+Modify `handler.py`:
+```python
+from patterns import discover_patterns
+
+def lambda_handler(event, context):
+    # Existing cost data
+    cost_data = get_full_analysis(days)
+    
+    # NEW: Run patterns
+    pattern_findings = []
+    for PatternClass in discover_patterns():
+        pattern = PatternClass()
+        findings = pattern.scan(regions=['us-east-1', 'us-west-2'])
+        pattern_findings.extend([f.to_dict() for f in findings])
+    
+    # Add to LLM context
+    cost_data['waste_findings'] = pattern_findings
+    
+    # Analyze with enriched data
+    analysis = analyze_costs(cost_data, provider='bedrock')
+```
+
+Update prompt to include:
+```
+### Detected Waste (from automated scans):
+{waste_findings}
+```
+
+### Priority 2: Add More Patterns
+
+| Pattern | Monthly Waste Potential |
+|---------|------------------------|
+| S3 incomplete multipart uploads | $$ |
+| S3 intelligent tiering candidates | $$ |
+| Unused Elastic Load Balancers | $$$ |
+| Cross-AZ data transfer | $$$$ |
+| Reserved Instance utilization | $$$$ |
+| Savings Plan coverage gaps | $$$$ |
+| Lambda over-provisioned memory | $$ |
+| CloudWatch log retention | $ |
+
+### Priority 3: Add CUR Integration
+
+Cost Explorer API has limitations:
+- 24-hour data lag
+- Limited granularity
+- No line-item detail
+
+CUR provides:
+- Hourly data
+- Line-item detail
+- Resource-level costs
+
+### Priority 4: Conversational Interface
+
+Add API Gateway endpoint:
+```
+POST /ask
+{ "question": "Why did my EC2 cost spike last week?" }
+```
+
+Use Bedrock with conversation history for follow-ups.
+
+---
+
+## Assessment
+
+| Aspect | Grade | Notes |
+|--------|-------|-------|
+| Pattern system | **B+** | Clean, extensible, 7 patterns |
+| Cost Explorer fetch | **A-** | Comprehensive data |
+| Bedrock integration | **B** | Works, but one-shot |
+| Prompt engineering | **B+** | Good structure |
+| End-to-end value | **C+** | Two good systems that don't talk |
+
+**Current state:** 60% of a good product. Pieces exist, need integration.
+
+---
+
+## Competitor Positioning
+
+**Our moat:** Privacy + AI + Self-hosted
+
+No competitor offers all three:
+- AWS native tools: No AI
+- Vantage/CloudHealth: Data leaves account
+- OpenCost: K8s-only, no AI
+
+**Market:** $5-13B → $23-38B by 2029-2034
+
+**Verdict:** Worth pursuing with clear milestones.
+
+---
+
+## Known Limitations
+
+### Hardcoded Pricing Tables
+
+The following patterns contain hardcoded AWS pricing estimates:
+
+| Pattern | File | Pricing Type |
+|---------|------|--------------|
+| P004 Idle EC2 | `p004_idle_ec2.py` | EC2 hourly costs by instance type |
+| P007 Idle RDS | `p007_idle_rds.py` | RDS hourly costs by instance class |
+
+**Impact:**
+- Prices are based on us-east-1 on-demand rates as of March 2026
+- Actual prices vary by region, OS (Windows/Linux), and change over time
+- Cost estimates may drift from actual costs
+
+**Mitigation options:**
+1. Integrate with [AWS Price List API](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/price-list-api.html)
+2. Maintain a pricing database updated via Lambda scheduled job
+3. Use Cost Explorer API for actual billed amounts (more accurate but slower)
+4. Accept estimates as "directionally correct" for prioritization purposes
+
+For now, estimates are sufficient for identifying idle resources, even if the exact
+dollar amounts drift. The goal is to find waste, not calculate precise costs.
+
+---
+
+## Next Steps
+
+1. [x] Connect patterns → AI (Priority 1) ✅
+2. [ ] Add 3 more high-value patterns
+3. [ ] Test with real AWS account
+4. [ ] Add natural language query endpoint
+5. [ ] AWS Marketplace listing
+
+---
+
+*Analysis by Rusty, March 23, 2026*
+
+<!-- End include: docs/ARCHITECTURE-ANALYSIS.md -->
+
+
+## Installation
+
 ```bash
-# Clone
-git clone https://github.com/hamley241/aws-bill-whisperer
+pip install aws-bill-whisperer
+```
+
+
+<!-- Included from: docs/INSTALL.md -->
+# Installation
+
+## Requirements
+
+- Python 3.10+
+- AWS credentials with Cost Explorer access
+
+## pip install
+
+```bash
+pip install aws-bill-whisperer
+```
+
+## From Source
+
+```bash
+git clone https://github.com/gpclaws/aws-bill-whisperer
 cd aws-bill-whisperer
-
-# Deploy
-sam build
-sam deploy --guided
+pip install -e .
 ```
 
-### Enable Bedrock Model Access
+<!-- End include: docs/INSTALL.md -->
 
-**Option 1: Console (easiest)**
-1. Go to AWS Console → Amazon Bedrock → Model access
-2. Enable `Claude Sonnet 4.6`
 
-**Option 2: Auto-enable on first use**
-The model auto-enables when you first invoke it. Just deploy and run — if not enabled, it will prompt you in the console.
-
-**Note:** Anthropic models require a one-time "First Time Use" form in the console before first invocation.
-
-### Option 2: Local Development
-
-Run the analyzer directly without deploying to AWS:
+## Quick Start
 
 ```bash
-# Clone
-git clone https://github.com/hamley241/aws-bill-whisperer
-cd aws-bill-whisperer
+# Configure AWS credentials
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
 
-# Install dependencies
-pip install -r src/requirements.txt
-
-# Run locally
-python cli/analyze.py --days 30
+# Run analysis
+whisper analyze --days 30
 ```
 
-### Option 3: CLI (CSV — No AWS API Access Needed)
 
-Analyze from a locally exported Cost & Usage Report:
+<!-- Included from: docs/USAGE.md -->
+# Usage
+
+## CLI
+
+### Analyze costs
 
 ```bash
-python cli/analyze.py --csv your-cur-export.csv
+whisper analyze --days 30
 ```
 
-Useful for:
-- Testing without Cost Explorer access
-- Air-gapped environments
-- Historical analysis from exported data
-
-## 📊 Sample Output
-
-```
-📊 AWS Bill Summary: January 2026
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💰 Total: $1,247.32 (+18% from December)
-
-🔥 Why the increase?
-1. EC2 in us-east-1: +$156 (3 new instances, forgot to terminate dev)
-2. S3 Transfer: +$89 (CloudFront cache miss spike on Jan 15)
-3. RDS: +$42 (storage auto-scaled from 100GB → 150GB)
-
-📈 Top 5 Services:
-1. EC2        $523.41  (42%)
-2. RDS        $312.18  (25%)
-3. S3         $198.44  (16%)
-4. Lambda     $87.22   (7%)
-5. CloudFront $52.11   (4%)
-
-💡 Recommendations:
-• Terminate 3 stopped EC2 instances → Save $89/mo
-• Enable S3 Intelligent Tiering → Save ~$40/mo
-• Consider Reserved Instances for prod EC2 → Save ~$150/mo
-
-Potential monthly savings: $279
-```
-
-## 📖 Understanding the Output
-
-Here's what each section of the report means:
-
-### Header Summary
-```
-💰 Total: $1,247.32 (+18% from December)
-```
-- **Total**: Your AWS spend for the analysis period (default: 30 days)
-- **Change %**: Comparison to previous period (same length, immediately before)
-- 📈 = increase, 📉 = decrease, ➡️ = stable (<5% change)
-
-### Why the Increase/Decrease
-```
-🔥 Why the increase?
-1. EC2 in us-east-1: +$156 (3 new instances, forgot to terminate dev)
-```
-The AI analyzes your cost changes and explains the **likely reasons**:
-- Which service changed the most
-- Which region it occurred in
-- What probably caused it (based on common patterns)
-
-> ⚠️ **Note**: The AI makes educated guesses based on patterns. Always verify before taking action.
-
-### Top Services
-```
-📈 Top 5 Services:
-1. EC2        $523.41  (42%)
-```
-Your highest-cost AWS services, sorted by spend:
-- **Service name**: AWS service (EC2, RDS, S3, etc.)
-- **Cost**: Dollar amount for the period
-- **Percentage**: Share of your total bill
-
-### Recommendations
-```
-💡 Recommendations:
-• Terminate 3 stopped EC2 instances → Save $89/mo
-```
-Actionable suggestions to reduce costs:
-- **Specific**: Names exact resources when possible
-- **Estimated savings**: Approximate monthly savings
-- **Prioritized**: Ordered by potential impact
-
-Common recommendation types:
-| Type | What It Means |
-|------|---------------|
-| Terminate instances | EC2 instances that are stopped but still incurring EBS costs |
-| Right-size | Instances using <20% CPU could be smaller |
-| Reserved/Savings Plans | Stable workloads that could use commitments |
-| Storage tiering | S3 data that could move to cheaper storage classes |
-| Cleanup | Unattached EBS volumes, old snapshots, unused IPs |
-
-### Potential Savings
-```
-Potential monthly savings: $279
-```
-Sum of all recommendation savings. This is an **estimate** — actual savings depend on implementation.
-
-### Output Formats
-
-Bill Whisperer supports multiple output formats:
-
-| Format | Command | Best For |
-|--------|---------|----------|
-| **Markdown** | `--output markdown` | Terminal, docs, README |
-| **JSON** | `--output json` | Programmatic parsing, APIs |
-| **Slack** | `--output slack` | Slack webhooks (Block Kit) |
-| **Raw** | `--output raw` | Debugging, raw cost data |
-
-**Examples:**
-```bash
-# Pretty markdown (default)
-python cli/analyze.py --days 30
-
-# JSON for scripting
-python cli/analyze.py --days 7 --output json | jq '.analysis'
-
-# Send to Slack
-python cli/analyze.py --output slack | curl -X POST -H 'Content-type: application/json' \
-  -d @- https://hooks.slack.com/services/YOUR/WEBHOOK/URL
-```
-
----
-
-## 🛠️ Configuration
-
-```yaml
-# config.yaml
-analysis:
-  days: 30                    # Look back period
-  comparison: previous_month  # Or: previous_period, year_over_year
-  
-llm:
-  provider: bedrock           # Or: openai, anthropic
-  model: claude-sonnet-4-6              # Or: claude-sonnet-4-5, claude-3-haiku (cheaper)
-  
-output:
-  format: markdown            # Or: json, slack, html
-  slack_webhook: ""           # Optional
-  email: ""                   # Optional (requires SES)
-  
-thresholds:
-  alert_increase_percent: 20  # Alert if bill increases >20%
-  minimum_item_dollars: 10    # Ignore items < $10
-```
-
-
-The Pattern Scanner is an automated tool for detecting waste in your AWS resources, saving costs by identifying inefficiencies. It includes 7 distinct waste detection patterns, some of which can be automatically fixed.
-
-| Pattern ID | Description | Auto-Fix Support |
-|------------|-------------|------------------|
-| 001        | Unattached EBS Volumes | Yes |
-| 002        | Idle Elastic IPs | Yes |
-| 003        | Underutilized EC2 Instances | No |
-| 004        | Old Snapshots | Yes |
-| 005        | Duplicate RDS Instances | No |
-| 006        | NAT Gateway Waste | No |
-| 007        | Unused Load Balancers | Yes |
-
-## 🛠️ Waste Pattern Scanner CLI Usage
-
-Here are some usage examples for the Pattern Scanner:
+### Scan for waste
 
 ```bash
-python src/whisper.py scan              # Scan all
-python src/whisper.py scan --pattern 001
-python src/whisper.py scan --json
-python src/whisper.py fix 001 vol-xxx --dry-run
-python src/whisper.py patterns          # List patterns
+whisper scan --patterns all --regions us-east-1
 ```
 
-## 📊 Sample Pattern Scan Output
+### Combined analysis
 
-Here is a sample of what the pattern scan output looks like:
-
-```
-🔍 AWS Bill Whisperer - Waste Scan
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Pattern 001: Unattached EBS Volumes
-  📍 EBS Volume: vol-0abc123
-     Region: us-east-1
-     Size: 100 GB
-     Monthly Cost: $8.00
-     ✅ Safe to auto-fix
-
-[etc.]
+```bash
+whisper full --output markdown
 ```
 
-## 🗂️ Project Structure
+## Programmatic
 
-```
-aws-bill-whisperer/
-├── README.md
-├── template.yaml              # SAM/CloudFormation
-├── samconfig.toml
-├── src/
-│   ├── analyzer/
-│   │   ├── __init__.py
-│   │   ├── handler.py         # Lambda entry point
-│   │   ├── cost_explorer.py   # AWS Cost Explorer client
-│   │   ├── llm.py             # LLM abstraction (Bedrock/OpenAI)
-│   │   ├── prompts.py         # System prompts
-│   │   ├── formatter.py       # Output formatting
-│   │   └── recommendations.py # Cost optimization rules
-│   ├── whisper.py             # Pattern Scanner
-│   ├── patterns/              # Waste detection patterns
-│   └── requirements.txt
-├── tests/
-│   ├── test_analyzer.py
-│   └── fixtures/
-│       └── sample_cost_data.json
-├── cli/
-│   └── analyze.py             # Local CLI tool
-└── examples/
-    ├── sample_output.md
-    └── slack_integration.md
+```python
+from whisperer import CostAnalyzer
+
+analyzer = CostAnalyzer()
+results = analyzer.analyze(days=30)
+print(results.summary)
 ```
 
-## 📘 Two Tools in One
+## Environment Variables
 
-AWS Bill Whisperer includes two primary tools:
-1. **AI Bill Analyzer (cli/analyze.py)** - Provides LLM-powered explanations for your AWS bills.
-2. **Pattern Scanner (src/whisper.py)** - Performs automated waste detection in your AWS infrastructure.
+| Variable | Description |
+|----------|-------------|
+| `AWS_ACCESS_KEY_ID` | AWS access key |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key |
+| `AWS_REGION` | Default region |
+| `LLM_PROVIDER` | bedrock or openai |
 
-## 💡 Unique Feature
+<!-- End include: docs/USAGE.md -->
 
-> 💡 **Unique Feature**: Pattern 006 analyzes VPC flow logs to find NAT Gateway waste — something most cost tools miss entirely.
 
-## 🗺️ Roadmap
+## License
 
-### v1.0 - Free (Open Source) ✅
-- [x] Basic cost analysis
-- [x] Plain English explanations
-- [x] Top cost drivers
-- [x] Simple recommendations
-- [x] SAM/CloudFormation deploy
-- [x] CLI tool
-- [x] 7 waste detection patterns
-- [x] Auto-fix for safe patterns
-- [x] JSON output support
-
-### v2.0 - Pro ($29/mo)
-- [ ] Multi-account (Organizations)
-- [ ] Historical trends (12 months)
-- [ ] Slack/Teams integration
-- [ ] Scheduled weekly digests
-- [ ] Custom alert thresholds
-
-### v3.0 - Enterprise ($199/mo)
-- [ ] Fine-tuned LLM on your data
-- [ ] Automated remediation
-- [ ] Team roles & RBAC
-- [ ] Compliance reports
-- [ ] White-label
-
-## 🤝 Contributing
-
-PRs welcome! See [CONTRIBUTING.md](CONTRIBUTING.md)
-
-## 📄 License
-
-MIT - Use it, fork it, sell it, whatever.
-
----
-
-Built by [Goutham Patley](https://linkedin.com/in/goutham-patley-b1391b41) 
-• 10 years distributed systems
-
+MIT License - see LICENSE file.
