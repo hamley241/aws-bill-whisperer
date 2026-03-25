@@ -67,24 +67,36 @@ pip install -e .
 <!-- Included from: docs/USAGE.md -->
 # Usage
 
-## CLI
-
-### Analyze costs
+## CLI (After Install)
 
 ```bash
+# Install
+pip install aws-bill-whisperer
+
+# Analyze costs
 whisper analyze --days 30
-```
 
-### Scan for waste
-
-```bash
+# Scan for waste
 whisper scan --patterns all --regions us-east-1
+
+# Combined analysis
+whisper full --output markdown
 ```
 
-### Combined analysis
+## CLI (Run Without Installing)
 
 ```bash
-whisper full --output markdown
+git clone https://github.com/hamley241/aws-bill-whisperer.git
+cd aws-bill-whisperer
+
+# Scan for waste (no AWS credentials needed for pattern scan)
+python3 src/whisper.py scan
+
+# Analyze costs (requires AWS credentials)
+python3 cli/analyze.py --days 30
+
+# Test without AWS
+python3 cli/analyze.py --mock
 ```
 
 ## Programmatic
