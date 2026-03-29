@@ -1,0 +1,173 @@
+"""
+Pattern 020: Unused Secrets Manager Secrets
+Detects Secrets Manager secrets that are:
+- Not accessed in 90+ days (potentially unused)
+- Have no rotation configured (security risk + wasted secret)
+"""
+
+from datetime import datetime, timedelta, timezone
+
+from .base import BasePattern, Complexity, Finding, Severity
+
+
+class SecretsManagerPattern(BasePattern):
+    PATTERN_ID = "020"
+    NAME = "Unused Secrets Manager Secrets"
+    DESCRIPTION = "Secrets Manager secrets not accessed in 90+ days or without rotation"
+    COMPLEXITY = Complexity.EASY
+    SERVICES = ["secretsmanager"]
+
+    # Pricing
+    SECRET_PRICE_PER_MONTH = 0.40  # $0.40 per secret per month
+    API_CALL_PRICE = 0.05 / 10000  # $0.05 per 10,000 API calls
+
+    # Thresholds
+    UNUSED_DAYS_THRESHOLD = 90  # Consider unused after 90 days
+    WARNING_DAYS_THRESHOLD = 60  # Warn after 60 days
+
+    def scan(self, regions: list[str] = None) -> list[Finding]:
+        regions = regions or self.get_all_regions()
+        self._findings = []
+
+        for region in regions:
+            try:
+                secretsmanager = self.session.client('secretsmanager', region_name=region)
+                self._scan_secrets(secretsmanager, region)
+            except Exception as e:
+                print(f"Error scanning Secrets Manager in {region}: {e}")
+                continue
+
+        return self._findings
+
+    def _scan_secrets(self, secretsmanager, region: str):
+        """Scan all secrets in the region."""
+        try:
+            paginator = secretsmanager.get_paginator('list_secrets')
+
+            for page in paginator.paginate():
+                for secret_entry in page.get('SecretList', []):
+                    self._analyze_secret(secretsmanager, secret_entry, region)
+
+        except Exception as e:
+            print(f"Error listing secrets in {region}: {e}")
+
+    def _analyze_secret(self, secretsmanager, secret_entry: dict, region: str):
+        """Analyze a single secret for usage and rotation status."""
+        try:
+            secret_arn = secret_entry['ARN']
+            secret_name = secret_entry['Name']
+            created_date = secret_entry.get('CreatedDate')
+            last_accessed_date = secret_entry.get('LastAccessedDate')
+            last_changed_date = secret_entry.get('LastChangedDate')
+            last_rotated_date = secret_entry.get('LastRotatedDate')
+            rotation_enabled = secret_entry.get('RotationEnabled', False)
+            rotation_rules = secret_entry.get('RotationRules', {})
+
+            now = datetime.now(timezone.utc)
+
+            # Calculate days since last access
+            if last_accessed_date:
+                days_since_access = (now - last_accessed_date).days
+            else:
+                # If never accessed, use creation date
+                days_since_access = (now - created_date).days if created_date else 999
+
+            # Calculate days since last change/rotation
+            last_modified = last_rotated_date or last_changed_date or created_date
+            days_since_modified = (now - last_modified).days if last_modified else 999
+
+            # Determine issues
+            issues = []
+            severity = Severity.LOW
+            monthly_cost = self.SECRET_PRICE_PER_MONTH
+
+            # Check for unused secret
+            is_unused = days_since_access >= self.UNUSED_DAYS_THRESHOLD
+
+            # Check for no rotation (security issue for long-lived secrets)
+            no_rotation = not rotation_enabled and days_since_access < self.UNUSED_DAYS_THRESHOLD
+
+            # Skip if no issues
+            if not is_unused and not no_rotation:
+                return
+
+            # Build recommendation
+            if is_unused:
+                issues.append(f"not accessed in {days_since_access} days")
+                if days_since_access > 180:
+                    severity = Severity.MEDIUM
+
+            if no_rotation:
+                issues.append("no rotation configured")
+
+            # Check if secret is scheduled for deletion
+            deleted_date = secret_entry.get('DeletedDate')
+            if deleted_date:
+                return  # Already scheduled for deletion
+
+            # Get tags to help identify owner
+            tags = {}
+            try:
+                tags_response = secretsmanager.describe_secret(SecretId=secret_arn)
+                tags = {t['Key']: t['Value'] for t in tags_response.get('Tags', [])}
+            except Exception:
+                pass
+
+            recommendation = f"Secret '{secret_name}' issues: {', '.join(issues)}. "
+            if is_unused:
+                recommendation += "Consider deleting if no longer needed."
+            elif no_rotation:
+                recommendation += "Enable rotation for security best practices."
+
+            finding = Finding(
+                resource_id=secret_name,
+                resource_type="Secrets Manager Secret",
+                region=region,
+                monthly_cost=monthly_cost,
+                recommendation=recommendation,
+                severity=severity,
+                safe_to_fix=is_unused and days_since_access > 180,  # Only safe if very old
+                fix_command=f"aws secretsmanager delete-secret --secret-id {secret_name} --recovery-window-in-days 30 --region {region}" if is_unused else None,
+                metadata={
+                    "secret_arn": secret_arn,
+                    "days_since_access": days_since_access,
+                    "days_since_modified": days_since_modified,
+                    "rotation_enabled": rotation_enabled,
+                    "rotation_rules": rotation_rules,
+                    "created_date": created_date.isoformat() if created_date else None,
+                    "last_accessed_date": last_accessed_date.isoformat() if last_accessed_date else None,
+                    "last_changed_date": last_changed_date.isoformat() if last_changed_date else None,
+                    "last_rotated_date": last_rotated_date.isoformat() if last_rotated_date else None,
+                    "tags": tags,
+                    "issues": issues,
+                }
+            )
+            self._findings.append(finding)
+
+        except Exception as e:
+            print(f"Error analyzing secret {secret_entry.get('Name', 'unknown')}: {e}")
+
+    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
+        """Delete an unused secret with recovery window."""
+        if not finding.safe_to_fix:
+            raise ValueError(f"Secret {finding.resource_id} is not marked safe to delete")
+
+        if dry_run:
+            print(f"[DRY RUN] Would schedule deletion for secret {finding.resource_id} "
+                  f"with 30-day recovery window")
+            return True
+
+        secretsmanager = self.session.client('secretsmanager', region_name=finding.region)
+
+        try:
+            # Schedule deletion with recovery window (can be recovered within 30 days)
+            secretsmanager.delete_secret(
+                SecretId=finding.resource_id,
+                RecoveryWindowInDays=30
+            )
+            print(f"Scheduled deletion for secret {finding.resource_id} "
+                  f"(recovery possible for 30 days)")
+            return True
+        except Exception as e:
+            print(f"Error deleting secret {finding.resource_id}: {e}")
+            return False
