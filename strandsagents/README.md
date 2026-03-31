@@ -110,6 +110,15 @@ The chat interface:
 - Returns human-readable summaries plus the exact AWS CLI commands to fix each issue
 - Keeps a running conversation context (similar to OpenClaw’s orchestration chat)
 
+### Customer Setup Checklist
+1. **Clone + install** (see Quick Start above).  
+2. **Provide AWS credentials** (env vars, `aws configure`, or an IAM role).  
+3. **Run** `python -m chat_interface.chat_cli`.  
+4. **Ask questions** like “show me Lambda savings” or “generate a full report”.  
+5. **Copy/paste the suggested commands** straight into your ops tooling (SSM, Terraform, etc.).
+
+> Tip: To expose this to your customers, wrap the CLI in a thin web socket server (FastAPI/Flask) and stream the `ChatResponse` payloads to a browser/chat UI. The conversational layer is already abstracted in `chat_interface/chatbot.py`, so you only need to swap the input/output transport.
+
 Example session:
 ```
 you> show me storage waste in us-east-1
