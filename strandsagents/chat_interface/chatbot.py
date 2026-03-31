@@ -24,6 +24,15 @@ class ChatResponse:
 class BillWhispererChat:
     """High-level conversational wrapper around the cost optimization agents."""
 
+    INTENT_RULES = [
+        {"name": "storage_quick", "keywords": ["storage quick", "storage win"], "handler": "_handle_storage_quick"},
+        {"name": "storage_full", "keywords": ["ebs", "s3", "bucket", "storage", "volume"], "handler": "_handle_storage_full"},
+        {"name": "compute_quick", "keywords": ["compute quick", "ec2 quick"], "handler": "_handle_compute_quick"},
+        {"name": "compute_full", "keywords": ["ec2", "compute", "lambda", "rightsizing", "reserved", "ri"], "handler": "_handle_compute_full"},
+        {"name": "quick", "keywords": ["quick", "top", "fast"], "handler": "_handle_quick"},
+        {"name": "report", "keywords": ["full", "report", "comprehensive", "summary", "all"], "handler": "_handle_report"},
+    ]
+
     def __init__(self, aws_session=None):
         self.orchestrator = AWSCostOrchestrator(aws_session=aws_session)
         session = self.orchestrator.aws_session
@@ -35,40 +44,51 @@ class BillWhispererChat:
         """Route a natural-language question to the right agents and format the answer."""
 
         self.conversation.append({"role": "user", "content": message})
-        intent = self._detect_intent(message)
-
-        if intent == "storage":
-            payload = await asyncio.to_thread(self.storage_agent.analyze)
-            response = self._format_storage_response(payload)
-        elif intent == "compute":
-            payload = await asyncio.to_thread(self.compute_agent.analyze)
-            response = self._format_compute_response(payload)
-        elif intent == "quick":
-            payload = await self.orchestrator.quick_wins_analysis()
-            response = self._format_orchestrator_response(payload)
-        elif intent == "report":
-            payload = await self.orchestrator.run_full_analysis()
-            response = self._format_orchestrator_response(payload)
-        else:
-            # Default: run storage + compute quick summary
-            storage_raw = await asyncio.to_thread(self.storage_agent.quick_wins)
-            compute_raw = await asyncio.to_thread(self.compute_agent.quick_wins)
-            response = self._format_combined_summary(storage_raw, compute_raw)
-
+        route = self._detect_intent(message)
+        handler_name = route.get("handler", "_handle_general")
+        handler = getattr(self, handler_name, self._handle_general)
+        response = await handler(message, route)
         self.conversation.append({"role": "assistant", "content": response.text})
         return response
 
-    def _detect_intent(self, message: str) -> str:
+    def _detect_intent(self, message: str) -> Dict[str, Any]:
         lowered = message.lower()
-        if any(kw in lowered for kw in ["s3", "storage", "ebs", "bucket"]):
-            return "storage"
-        if any(kw in lowered for kw in ["ec2", "compute", "lambda", "rightsizing", "reserved"]):
-            return "compute"
-        if "quick" in lowered or "top" in lowered:
-            return "quick"
-        if any(kw in lowered for kw in ["full", "report", "comprehensive", "summary"]):
-            return "report"
-        return "general"
+        for rule in self.INTENT_RULES:
+            if any(keyword in lowered for keyword in rule["keywords"]):
+                return rule
+        return {"name": "general", "handler": "_handle_general"}
+
+    async def _handle_storage_full(self, message: str, route: Dict[str, Any]) -> ChatResponse:
+        payload = await asyncio.to_thread(self.storage_agent.analyze, message)
+        return self._format_storage_response(payload, context=message)
+
+    async def _handle_storage_quick(self, message: str, route: Dict[str, Any]) -> ChatResponse:
+        payload = await asyncio.to_thread(self.storage_agent.quick_wins)
+        return self._format_storage_response(payload, context="storage quick wins")
+
+    async def _handle_compute_full(self, message: str, route: Dict[str, Any]) -> ChatResponse:
+        payload = await asyncio.to_thread(self.compute_agent.analyze, message)
+        return self._format_compute_response(payload, context=message)
+
+    async def _handle_compute_quick(self, message: str, route: Dict[str, Any]) -> ChatResponse:
+        payload = await asyncio.to_thread(self.compute_agent.quick_wins)
+        return self._format_compute_response(payload, context="compute quick wins")
+
+    async def _handle_quick(self, message: str, route: Dict[str, Any]) -> ChatResponse:
+        payload = await self.orchestrator.quick_wins_analysis()
+        return self._format_orchestrator_response(payload, context="quick wins")
+
+    async def _handle_report(self, message: str, route: Dict[str, Any]) -> ChatResponse:
+        payload = await self.orchestrator.run_full_analysis()
+        return self._format_orchestrator_response(payload, context="full report")
+
+    async def _handle_general(self, message: str, route: Dict[str, Any]) -> ChatResponse:
+        payload = await asyncio.to_thread(self.orchestrator.orchestrator, message)
+        try:
+            data = self._safe_json(str(payload))
+        except Exception:
+            data = {"raw": str(payload)}
+        return self._format_orchestrator_response(data, context=message)
 
     def _safe_json(self, payload: Any) -> Dict[str, Any]:
         if isinstance(payload, dict):
@@ -80,7 +100,7 @@ class BillWhispererChat:
                 return {"raw": payload}
         return {"raw": str(payload)}
 
-    def _format_storage_response(self, payload: Any) -> ChatResponse:
+    def _format_storage_response(self, payload: Any, context: str | None = None) -> ChatResponse:
         data = self._safe_json(payload)
         volumes = data.get("volumes", [])
         findings = []
@@ -101,14 +121,17 @@ class BillWhispererChat:
                     "command": vol["SafetyCommand"],
                 })
 
+        header = "Storage scan"
+        if context:
+            header += f" for '{context}'"
         text = (
-            f"Storage scan found {data.get('total_unattached_volumes', 0)} unattached EBS volumes "
+            f"{header} found {data.get('total_unattached_volumes', 0)} unattached EBS volumes "
             f"wasting ${data.get('total_monthly_waste', 0)} per month.\n" + "\n".join(findings)
         )
 
         return ChatResponse(text=text, commands=commands, raw=data)
 
-    def _format_compute_response(self, payload: Any) -> ChatResponse:
+    def _format_compute_response(self, payload: Any, context: str | None = None) -> ChatResponse:
         data = self._safe_json(payload)
         idle = data.get('idle_instances', {}).get('instances', [])
         rightsizing = data.get('underutilized_instances', {}).get('instances', [])
@@ -136,26 +159,29 @@ class BillWhispererChat:
                     "command": inst['RightsizeCommand'],
                 })
 
+        header = "Compute scan"
+        if context:
+            header += f" for '{context}'"
         text = (
-            f"Compute scan: {data.get('idle_instances', {}).get('count', 0)} idle instances and "
+            f"{header}: {data.get('idle_instances', {}).get('count', 0)} idle instances and "
             f"{data.get('underutilized_instances', {}).get('count', 0)} rightsize targets.\n" + "\n".join(lines)
         )
 
         return ChatResponse(text=text, commands=commands, raw=data)
 
-    def _format_orchestrator_response(self, payload: Any) -> ChatResponse:
+    def _format_orchestrator_response(self, payload: Any, context: str | None = None) -> ChatResponse:
         data = self._safe_json(payload)
         summary = data.get('total_optimization_potential') or data.get('total_monthly_savings_potential')
-        text = ""
+        prefix = f"Result for '{context}': " if context else ""
         if isinstance(summary, dict):
             text = (
-                f"Total savings: ${summary.get('monthly_savings', 0)} /mo "
+                f"{prefix}Total savings: ${summary.get('monthly_savings', 0)} /mo "
                 f"(~${summary.get('annual_savings', 0)} annually)."
             )
         elif isinstance(summary, (int, float)):
-            text = f"Total savings: ${summary:.2f} per month."
+            text = f"{prefix}Total savings: ${summary:.2f} per month."
         else:
-            text = "Generated comprehensive optimization report."
+            text = f"{prefix}Generated comprehensive optimization report."
 
         return ChatResponse(text=text, commands=[], raw=data)
 
