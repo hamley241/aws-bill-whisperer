@@ -19,6 +19,8 @@ class StorageOptimizationAgent:
         self.ec2_client = self.aws_session.client('ec2')
         self.s3_client = self.aws_session.client('s3')
         self.cloudwatch_client = self.aws_session.client('cloudwatch')
+        # S3 CloudWatch metrics are only available in us-east-1
+        self.cloudwatch_s3_client = self.aws_session.client('cloudwatch', region_name='us-east-1')
         
         # Initialize the agent with storage-specific tools
         self.agent = self._create_storage_agent()
@@ -286,19 +288,63 @@ class StorageOptimizationAgent:
         
         # Helper methods for tool functions
         def _get_volume_utilization(self, volume_id: str) -> float:
-            """Mock volume utilization - in production, use CloudWatch metrics"""
-            import random
-            return random.uniform(20, 95)
+            """Estimate EBS volume utilization using CloudWatch metrics"""
+            try:
+                end_time = datetime.utcnow()
+                start_time = end_time - timedelta(days=7)
+                metrics = self.cloudwatch_client.get_metric_statistics(
+                    Namespace='AWS/EBS',
+                    MetricName='VolumeIdleTime',
+                    Dimensions=[{'Name': 'VolumeId', 'Value': volume_id}],
+                    StartTime=start_time,
+                    EndTime=end_time,
+                    Period=3600,
+                    Statistics=['Average']
+                )
+                datapoints = metrics.get('Datapoints', [])
+                if not datapoints:
+                    return 50.0  # Neutral fallback when no metrics yet
+                latest = sorted(datapoints, key=lambda d: d['Timestamp'])[-1]
+                idle_pct = min(max(latest['Average'] / 3600 * 100, 0), 100)
+                utilization = 100 - idle_pct
+                return round(utilization, 2)
+            except Exception:
+                return 50.0
+        
+        def _get_bucket_size_gb(self, bucket_name: str) -> float:
+            """Fetch actual S3 bucket size from CloudWatch BucketSizeBytes"""
+            try:
+                end_time = datetime.utcnow()
+                start_time = end_time - timedelta(days=2)
+                metrics = self.cloudwatch_s3_client.get_metric_statistics(
+                    Namespace='AWS/S3',
+                    MetricName='BucketSizeBytes',
+                    Dimensions=[
+                        {'Name': 'BucketName', 'Value': bucket_name},
+                        {'Name': 'StorageType', 'Value': 'StandardStorage'}
+                    ],
+                    StartTime=start_time,
+                    EndTime=end_time,
+                    Period=86400,
+                    Statistics=['Average']
+                )
+                datapoints = metrics.get('Datapoints', [])
+                if not datapoints:
+                    return 0.0
+                latest = sorted(datapoints, key=lambda d: d['Timestamp'])[-1]
+                size_gb = latest['Average'] / (1024 ** 3)
+                return round(size_gb, 2)
+            except Exception:
+                return 0.0
         
         def _analyze_s3_bucket(self, bucket_name: str, lifecycle_config: dict) -> dict:
-            """Mock S3 bucket analysis - in production, use S3 analytics"""
-            import random
-            
+            """Analyze S3 bucket using real metrics"""
             has_lifecycle = lifecycle_config is not None
-            estimated_size_gb = random.randint(100, 10000)
+            estimated_size_gb = self._get_bucket_size_gb(bucket_name)
             
-            # Estimate savings from intelligent tiering and lifecycle
-            potential_savings = 0 if has_lifecycle else estimated_size_gb * 0.01  # $0.01/GB potential savings
+            # Conservative savings estimate: 5% if lifecycle exists, 15% if not
+            savings_rate = 0.05 if has_lifecycle else 0.15
+            potential_savings = estimated_size_gb * savings_rate * 0.023  # $0.023/GB-month baseline
             
             return {
                 'bucket_name': bucket_name,

@@ -415,19 +415,76 @@ class ComputeOptimizationAgent:
         
         # Helper methods
         def _get_cpu_utilization(self, instance_id: str) -> float:
-            """Mock CPU utilization - in production, use CloudWatch API"""
-            import random
-            return random.uniform(2, 85)
+            """Fetch real CPU utilization from CloudWatch"""
+            try:
+                end_time = datetime.utcnow()
+                start_time = end_time - timedelta(days=7)
+                metrics = self.cloudwatch_client.get_metric_statistics(
+                    Namespace='AWS/EC2',
+                    MetricName='CPUUtilization',
+                    Dimensions=[{'Name': 'InstanceId', 'Value': instance_id}],
+                    StartTime=start_time,
+                    EndTime=end_time,
+                    Period=3600,
+                    Statistics=['Average']
+                )
+                datapoints = metrics.get('Datapoints', [])
+                if not datapoints:
+                    return 0.0
+                latest = sorted(datapoints, key=lambda d: d['Timestamp'])[-1]
+                return round(latest['Average'], 2)
+            except Exception:
+                return 0.0
         
         def _get_memory_utilization(self, instance_id: str) -> float:
-            """Mock memory utilization - in production, use CloudWatch agent"""
-            import random
-            return random.uniform(5, 75)
+            """Fetch memory utilization from CloudWatch Agent metrics when available"""
+            try:
+                end_time = datetime.utcnow()
+                start_time = end_time - timedelta(days=7)
+                metrics = self.cloudwatch_client.get_metric_statistics(
+                    Namespace='CWAgent',
+                    MetricName='mem_used_percent',
+                    Dimensions=[
+                        {'Name': 'InstanceId', 'Value': instance_id},
+                        {'Name': 'ImageId', 'Value': '*'},
+                        {'Name': 'InstanceType', 'Value': '*'}
+                    ],
+                    StartTime=start_time,
+                    EndTime=end_time,
+                    Period=3600,
+                    Statistics=['Average']
+                )
+                datapoints = metrics.get('Datapoints', [])
+                if not datapoints:
+                    return 0.0
+                latest = sorted(datapoints, key=lambda d: d['Timestamp'])[-1]
+                return round(latest['Average'], 2)
+            except Exception:
+                return 0.0
         
         def _get_network_utilization(self, instance_id: str) -> float:
-            """Mock network utilization"""
-            import random
-            return random.uniform(1, 30)
+            """Approximate network utilization (MB/s) using CloudWatch NetworkIn"""
+            try:
+                end_time = datetime.utcnow()
+                start_time = end_time - timedelta(days=7)
+                metrics = self.cloudwatch_client.get_metric_statistics(
+                    Namespace='AWS/EC2',
+                    MetricName='NetworkIn',
+                    Dimensions=[{'Name': 'InstanceId', 'Value': instance_id}],
+                    StartTime=start_time,
+                    EndTime=end_time,
+                    Period=3600,
+                    Statistics=['Average']
+                )
+                datapoints = metrics.get('Datapoints', [])
+                if not datapoints:
+                    return 0.0
+                latest = sorted(datapoints, key=lambda d: d['Timestamp'])[-1]
+                # Convert Bytes to MB per second over the period
+                mb = latest['Average'] / (1024 * 1024)
+                return round(mb / 3600, 4)
+            except Exception:
+                return 0.0
         
         def _recommend_smaller_instance(self, current_type: str, cpu_avg: float, memory_avg: float) -> str:
             """Recommend smaller instance type based on utilization"""
@@ -453,19 +510,68 @@ class ComputeOptimizationAgent:
             return current_type
         
         def _get_lambda_avg_duration(self, func_name: str) -> float:
-            """Mock Lambda duration - in production, use CloudWatch Insights"""
-            import random
-            return random.uniform(100, 5000)  # ms
+            """Fetch Lambda average duration from CloudWatch"""
+            try:
+                end_time = datetime.utcnow()
+                start_time = end_time - timedelta(days=7)
+                metrics = self.cloudwatch_client.get_metric_statistics(
+                    Namespace='AWS/Lambda',
+                    MetricName='Duration',
+                    Dimensions=[{'Name': 'FunctionName', 'Value': func_name}],
+                    StartTime=start_time,
+                    EndTime=end_time,
+                    Period=3600,
+                    Statistics=['Average']
+                )
+                datapoints = metrics.get('Datapoints', [])
+                if not datapoints:
+                    return 0.0
+                latest = sorted(datapoints, key=lambda d: d['Timestamp'])[-1]
+                return round(latest['Average'], 2)
+            except Exception:
+                return 0.0
         
         def _get_lambda_avg_memory_used(self, func_name: str) -> float:
-            """Mock Lambda memory usage"""
-            import random
-            return random.uniform(50, 400)  # MB
+            """Use Lambda MaxMemoryUsed metric when available"""
+            try:
+                end_time = datetime.utcnow()
+                start_time = end_time - timedelta(days=7)
+                metrics = self.cloudwatch_client.get_metric_statistics(
+                    Namespace='AWS/Lambda',
+                    MetricName='MaxMemoryUsed',
+                    Dimensions=[{'Name': 'FunctionName', 'Value': func_name}],
+                    StartTime=start_time,
+                    EndTime=end_time,
+                    Period=3600,
+                    Statistics=['Maximum']
+                )
+                datapoints = metrics.get('Datapoints', [])
+                if not datapoints:
+                    return 0.0
+                latest = sorted(datapoints, key=lambda d: d['Timestamp'])[-1]
+                return round(latest['Maximum'] / 1024, 2)  # Convert KB to MB
+            except Exception:
+                return 0.0
         
         def _get_lambda_monthly_invocations(self, func_name: str) -> int:
-            """Mock Lambda invocation count"""
-            import random
-            return random.randint(1000, 100000)
+            """Fetch Lambda invocation count from CloudWatch"""
+            try:
+                end_time = datetime.utcnow()
+                start_time = end_time - timedelta(days=30)
+                metrics = self.cloudwatch_client.get_metric_statistics(
+                    Namespace='AWS/Lambda',
+                    MetricName='Invocations',
+                    Dimensions=[{'Name': 'FunctionName', 'Value': func_name}],
+                    StartTime=start_time,
+                    EndTime=end_time,
+                    Period=86400,
+                    Statistics=['Sum']
+                )
+                datapoints = metrics.get('Datapoints', [])
+                total = sum(point['Sum'] for point in datapoints)
+                return int(total)
+            except Exception:
+                return 0
         
         # Attach helper methods for tool access
         self._get_cpu_utilization = _get_cpu_utilization
