@@ -113,11 +113,20 @@ The chat interface:
 ### Customer Setup Checklist
 1. **Clone + install** (see Quick Start above).  
 2. **Provide AWS credentials** (env vars, `aws configure`, or an IAM role).  
-3. **Run** `python -m chat_interface.chat_cli`.  
+3. **Run** either `python -m chat_interface.chat_cli` *or* the web server below.  
 4. **Ask questions** like “show me Lambda savings” or “generate a full report”.  
 5. **Copy/paste the suggested commands** straight into your ops tooling (SSM, Terraform, etc.).
 
-> Tip: To expose this to your customers, wrap the CLI in a thin web socket server (FastAPI/Flask) and stream the `ChatResponse` payloads to a browser/chat UI. The conversational layer is already abstracted in `chat_interface/chatbot.py`, so you only need to swap the input/output transport.
+### Web Chat (FastAPI + WebSocket)
+Spin up a lightweight web interface (inspired by OpenClaw’s control plane):
+```bash
+# Install extras first (already in requirements.txt)
+pip install -r requirements.txt
+
+# Launch the server (default localhost:8000)
+uvicorn chat_interface.chat_server:app --reload
+```
+Then open <http://localhost:8000> and chat in the browser. Messages stream over WebSockets, and remediation commands show up inline for copy/paste.
 
 Example session:
 ```

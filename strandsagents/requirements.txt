@@ -4,3 +4,5 @@ boto3
 pandas
 pydantic
 python-dotenv
+fastapi
+uvicorn
