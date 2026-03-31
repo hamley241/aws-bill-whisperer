@@ -82,7 +82,9 @@ class ComputeOptimizationAgent:
                                 'MonthlyCost': round(monthly_cost, 2),
                                 'AnnualWaste': round(monthly_cost * 12, 2),
                                 'Tags': tags,
-                                'Recommendation': 'STOP' if running_days > 7 else 'MONITOR'
+                                'Recommendation': 'STOP' if running_days > 7 else 'MONITOR',
+                                'StopCommand': f"aws ec2 stop-instances --instance-ids {instance_id}",
+                                'ScheduleCommand': f"aws events put-rule --name stop-{instance_id}-offhours --schedule-expression 'cron(0 4 * * ? *)'"
                             })
                             total_idle_cost += monthly_cost
                             
@@ -103,7 +105,8 @@ class ComputeOptimizationAgent:
                                     'RecommendedMonthlyCost': round(new_cost, 2),
                                     'MonthlySavings': round(savings, 2),
                                     'AnnualSavings': round(savings * 12, 2),
-                                    'Tags': tags
+                                    'Tags': tags,
+                                    'RightsizeCommand': f"aws ec2 stop-instances --instance-ids {instance_id} && aws ec2 modify-instance-attribute --instance-id {instance_id} --instance-type '{recommended_type}' && aws ec2 start-instances --instance-ids {instance_id}"
                                 })
                                 total_rightsizing_savings += savings
                 
@@ -203,7 +206,8 @@ class ComputeOptimizationAgent:
                                 'MonthlySavings': round(monthly_savings_3yr, 2),
                                 'AnnualSavings': round(monthly_savings_3yr * 12, 2),
                                 'PercentSavings': '50%'
-                            }
+                            },
+                            'SampleCommand': 'aws ce get-reservation-purchase-recommendation --service EC2 --term-in-years ONE_YEAR --lookback-period-in-days THIRTY_DAYS --payment-option ALL_UPFRONT'
                         })
                         
                         # Use 1-year RI savings for total calculation
@@ -292,7 +296,8 @@ class ComputeOptimizationAgent:
                             'OptimizationTypes': [
                                 'MEMORY' if memory_optimized else None,
                                 'TIMEOUT' if timeout_optimized else None
-                            ]
+                            ],
+                            'FixCommand': f"aws lambda update-function-configuration --function-name {func_name} --memory-size {recommended_memory} --timeout {recommended_timeout}"
                         })
                 
                 optimization_opportunities.sort(key=lambda x: x['MonthlySavings'], reverse=True)
@@ -339,7 +344,8 @@ class ComputeOptimizationAgent:
                             'effort': 'LOW',
                             'risk': 'LOW',
                             'timeline': '1 week',
-                            'automation': 'AWS Instance Scheduler'
+                            'automation': 'AWS Instance Scheduler',
+                            'sample_command': 'aws ec2 stop-instances --instance-ids <INSTANCE_IDS>'
                         },
                         {
                             'action': 'Optimize over-provisioned Lambda memory',
@@ -347,7 +353,8 @@ class ComputeOptimizationAgent:
                             'effort': 'LOW',
                             'risk': 'LOW',
                             'timeline': '1 week',
-                            'automation': 'Lambda Power Tuning'
+                            'automation': 'Lambda Power Tuning',
+                            'sample_command': 'aws lambda update-function-configuration --function-name <FUNC> --memory-size <MB>'
                         }
                     ],
                     'short_term_actions': [
@@ -357,7 +364,8 @@ class ComputeOptimizationAgent:
                             'effort': 'MEDIUM',
                             'risk': 'LOW',
                             'timeline': '2-4 weeks',
-                            'automation': 'RI utilization monitoring'
+                            'automation': 'RI utilization monitoring',
+                            'sample_command': 'aws ce get-reservation-purchase-recommendation --service EC2'
                         },
                         {
                             'action': 'Rightsize underutilized EC2 instances',
@@ -365,7 +373,8 @@ class ComputeOptimizationAgent:
                             'effort': 'HIGH',
                             'risk': 'MEDIUM',
                             'timeline': '4-8 weeks',
-                            'automation': 'AWS Compute Optimizer'
+                            'automation': 'AWS Compute Optimizer',
+                            'sample_command': 'aws ec2 modify-instance-attribute --instance-id <ID> --instance-type <TYPE>'
                         }
                     ],
                     'monitoring_and_alerts': [

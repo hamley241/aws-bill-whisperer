@@ -69,7 +69,9 @@ class StorageOptimizationAgent:
                         'CreateTime': create_time.isoformat(),
                         'Tags': tags,
                         'Priority': 'HIGH' if age_days > 30 and monthly_cost > 10 else 'MEDIUM',
-                        'SafeToDelete': age_days > 7  # Conservative safety threshold
+                        'SafeToDelete': age_days > 7,  # Conservative safety threshold
+                        'FixCommand': f"aws ec2 delete-volume --volume-id {volume_id}",
+                        'SafetyCommand': f"aws ec2 create-snapshot --volume-id {volume_id} --description 'pre-delete-backup-{volume_id}'"
                     })
                 
                 # Sort by highest cost first
@@ -127,7 +129,9 @@ class StorageOptimizationAgent:
                             'UtilizationPercent': round(utilization_pct, 1),
                             'MonthlySavings': round(monthly_savings, 2),
                             'VolumeType': volume_type,
-                            'AttachedInstance': volume.get('Attachments', [{}])[0].get('InstanceId', 'Unknown')
+                            'AttachedInstance': volume.get('Attachments', [{}])[0].get('InstanceId', 'Unknown'),
+                            'FixCommand': f"aws ec2 modify-volume --volume-id {volume_id} --size {recommended_size}",
+                            'SafetyCommand': f"aws ec2 create-snapshot --volume-id {volume_id} --description 'pre-resize-{volume_id}'"
                         })
                 
                 oversized_volumes.sort(key=lambda x: x['MonthlySavings'], reverse=True)
@@ -220,14 +224,16 @@ class StorageOptimizationAgent:
                             'monthly_savings': ebs_scan.get('total_monthly_waste', 0) * 0.6,  # Conservative estimate
                             'effort': 'LOW',
                             'risk': 'LOW',
-                            'timeline': '1 week'
+                            'timeline': '1 week',
+                            'sample_command': 'aws ec2 create-snapshot --volume-id <VOL> && aws ec2 delete-volume --volume-id <VOL>'
                         },
                         {
                             'action': 'Implement S3 Intelligent Tiering',
                             'monthly_savings': s3_scan.get('total_monthly_savings_potential', 0) * 0.3,
                             'effort': 'LOW', 
                             'risk': 'NONE',
-                            'timeline': '1 day'
+                            'timeline': '1 day',
+                            'sample_command': 'aws s3api put-bucket-lifecycle-configuration --bucket <BUCKET> --lifecycle-configuration file://intelligent-tiering.json'
                         }
                     ],
                     'short_term_actions': [
@@ -236,14 +242,16 @@ class StorageOptimizationAgent:
                             'monthly_savings': oversized_scan.get('total_monthly_savings_potential', 0) * 0.4,
                             'effort': 'MEDIUM',
                             'risk': 'MEDIUM',
-                            'timeline': '2-4 weeks'
+                            'timeline': '2-4 weeks',
+                            'sample_command': 'aws ec2 modify-volume --volume-id <VOL> --size <NEW_SIZE>'
                         },
                         {
                             'action': 'Implement S3 lifecycle policies',
                             'monthly_savings': s3_scan.get('total_monthly_savings_potential', 0) * 0.5,
                             'effort': 'MEDIUM',
                             'risk': 'LOW',
-                            'timeline': '2 weeks'
+                            'timeline': '2 weeks',
+                            'sample_command': 'aws s3api put-bucket-lifecycle-configuration --bucket <BUCKET> --lifecycle-configuration file://lifecycle.json'
                         }
                     ],
                     'automation_opportunities': [
@@ -297,7 +305,9 @@ class StorageOptimizationAgent:
                 'estimated_size_gb': estimated_size_gb,
                 'has_lifecycle_policy': has_lifecycle,
                 'potential_savings': round(potential_savings, 2),
-                'recommendations': [] if has_lifecycle else ['Enable Intelligent Tiering', 'Set up lifecycle rules']
+                'recommendations': [] if has_lifecycle else ['Enable Intelligent Tiering', 'Set up lifecycle rules'],
+                'FixCommand': None if has_lifecycle else f"aws s3api put-bucket-lifecycle-configuration --bucket {bucket_name} --lifecycle-configuration file://lifecycle-{bucket_name}.json",
+                'SampleLifecycleJson': None if has_lifecycle else '{"Rules":[{"ID":"intelligent-tiering","Status":"Enabled","Filter":{"Prefix":""},"Transitions":[{"Days":30,"StorageClass":"INTELLIGENT_TIERING"}]}]}'
             }
         
         # Attach helper methods to self for tool access
