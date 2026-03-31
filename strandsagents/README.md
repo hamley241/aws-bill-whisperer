@@ -96,6 +96,30 @@ The demo showcases:
 - Cross-domain optimization scenarios
 - Automation recommendations
 
+## 💬 Conversational Chat Interface
+
+Ask natural-language questions ("show idle EC2 instances", "what storage waste do we have?") via the built-in chat CLI:
+
+```bash
+# From the strandsagents directory (with AWS creds configured)
+python -m chat_interface.chat_cli
+```
+
+The chat interface:
+- Routes queries to the right specialist agents automatically
+- Returns human-readable summaries plus the exact AWS CLI commands to fix each issue
+- Keeps a running conversation context (similar to OpenClaw’s orchestration chat)
+
+Example session:
+```
+you> show me storage waste in us-east-1
+agent> Storage scan found 7 unattached EBS volumes wasting $312/mo...
+Suggested commands:
+  - Cleanup vol-0abc123:
+    aws ec2 create-snapshot --volume-id vol-0abc123 ...
+    aws ec2 delete-volume --volume-id vol-0abc123
+```
+
 ## 📖 Usage Examples
 
 ### Individual Agent Analysis
