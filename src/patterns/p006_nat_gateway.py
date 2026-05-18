@@ -5,7 +5,7 @@ Detects NAT Gateways with high data transfer costs and suggests alternatives
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class NatGatewayOptimizationPattern(BasePattern):
@@ -65,20 +65,20 @@ class NatGatewayOptimizationPattern(BasePattern):
                     if total_gb_out < self.monthly_transfer_threshold_gb:
                         continue
 
-                    # Determine severity based on transfer volume
+                    # Determine risk_tier based on transfer volume
                     if total_gb_out > 1000:  # > 1TB
-                        severity = Severity.HIGH
+                        risk_tier= RiskTier.HIGH
                     elif total_gb_out > 500:  # > 500GB
-                        severity = Severity.MEDIUM
+                        risk_tier= RiskTier.MEDIUM
                     else:
-                        severity = Severity.LOW
+                        risk_tier= RiskTier.LOW
 
                     # Calculate potential savings with alternatives
                     # VPC endpoints could eliminate some S3/DynamoDB transfer
                     # NAT instances are cheaper for dev/test workloads
                     estimated_vpc_endpoint_savings = min(total_gb_out * 0.3, total_gb_out) * self.DATA_TRANSFER_COST
 
-                    # Build recommendation
+                    # Build summary
                     recommendations = []
                     if total_gb_out > 200:
                         recommendations.append(f"Consider VPC endpoints for S3/DynamoDB (potential savings: ${estimated_vpc_endpoint_savings:.2f}/month)")
@@ -86,18 +86,19 @@ class NatGatewayOptimizationPattern(BasePattern):
                         recommendations.append("Consider NAT instance for dev/test workloads (60-70% cost savings)")
                     recommendations.append(f"Review data transfer patterns ({total_gb_out:.1f}GB/month)")
 
-                    recommendation = "; ".join(recommendations)
+                    summary= "; ".join(recommendations)
 
                     # Age in days
                     age_days = (datetime.now(timezone.utc) - create_time).days if create_time else 0
 
                     finding = Finding(
+                        pattern_id=self.PATTERN_ID,
                         resource_id=nat_gw_id,
                         resource_type="NAT Gateway",
                         region=region,
-                        monthly_cost=total_monthly_cost,
-                        recommendation=recommendation,
-                        severity=severity,
+                        monthly_impact_usd=total_monthly_cost,
+                        summary=summary,
+                        risk_tier=risk_tier,
                         safe_to_fix=False,  # NAT Gateway changes need careful planning
                         fix_command=None,
                         metadata={

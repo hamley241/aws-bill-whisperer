@@ -6,7 +6,7 @@ Cross-AZ data transfer is the "silent killer" of AWS bills at $0.01/GB each way.
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class CrossAZTransferPattern(BasePattern):
@@ -73,15 +73,15 @@ class CrossAZTransferPattern(BasePattern):
                 # Cross-AZ replication doubles write traffic (primary → standby)
                 monthly_cross_az_cost = write_gb * self.CROSS_AZ_COST_PER_GB * 2
 
-                # Determine severity
+                # Determine risk_tier
                 if monthly_cross_az_cost > 100:
-                    severity = Severity.HIGH
+                    risk_tier= RiskTier.HIGH
                 elif monthly_cross_az_cost > 25:
-                    severity = Severity.MEDIUM
+                    risk_tier= RiskTier.MEDIUM
                 else:
-                    severity = Severity.LOW
+                    risk_tier= RiskTier.LOW
 
-                recommendation = (
+                summary= (
                     f"RDS Multi-AZ with {write_gb:.1f}GB/month write traffic. "
                     f"Cross-AZ replication cost: ${monthly_cross_az_cost:.2f}/month. "
                     "Consider: (1) Read replicas in same AZ as app tier, "
@@ -90,12 +90,13 @@ class CrossAZTransferPattern(BasePattern):
                 )
 
                 finding = Finding(
+                    pattern_id=self.PATTERN_ID,
                     resource_id=db_id,
                     resource_type="RDS Multi-AZ Instance",
                     region=region,
-                    monthly_cost=monthly_cross_az_cost,
-                    recommendation=recommendation,
-                    severity=severity,
+                    monthly_impact_usd=monthly_cross_az_cost,
+                    summary=summary,
+                    risk_tier=risk_tier,
                     safe_to_fix=False,
                     fix_command=None,
                     metadata={
@@ -152,13 +153,13 @@ class CrossAZTransferPattern(BasePattern):
                 monthly_cross_az_cost = cross_az_gb * self.CROSS_AZ_COST_PER_GB * 2
 
                 if monthly_cross_az_cost > 50:
-                    severity = Severity.HIGH
+                    risk_tier= RiskTier.HIGH
                 elif monthly_cross_az_cost > 15:
-                    severity = Severity.MEDIUM
+                    risk_tier= RiskTier.MEDIUM
                 else:
-                    severity = Severity.LOW
+                    risk_tier= RiskTier.LOW
 
-                recommendation = (
+                summary= (
                     f"ElastiCache cluster spans {len(azs_used)} AZs with "
                     f"~{cross_az_gb:.1f}GB/month cross-AZ traffic. "
                     f"Estimated cost: ${monthly_cross_az_cost:.2f}/month. "
@@ -168,12 +169,13 @@ class CrossAZTransferPattern(BasePattern):
                 )
 
                 finding = Finding(
+                    pattern_id=self.PATTERN_ID,
                     resource_id=rg_id,
                     resource_type="ElastiCache Replication Group",
                     region=region,
-                    monthly_cost=monthly_cross_az_cost,
-                    recommendation=recommendation,
-                    severity=severity,
+                    monthly_impact_usd=monthly_cross_az_cost,
+                    summary=summary,
+                    risk_tier=risk_tier,
                     safe_to_fix=False,
                     fix_command=None,
                     metadata={
@@ -252,14 +254,14 @@ class CrossAZTransferPattern(BasePattern):
                             continue  # Skip small costs for EC2
 
                         if monthly_cross_az_cost > 100:
-                            severity = Severity.HIGH
+                            risk_tier= RiskTier.HIGH
                         elif monthly_cross_az_cost > 30:
-                            severity = Severity.MEDIUM
+                            risk_tier= RiskTier.MEDIUM
                         else:
-                            severity = Severity.LOW
+                            risk_tier= RiskTier.LOW
 
                         details = instance_details[instance_id]
-                        recommendation = (
+                        summary= (
                             f"High-traffic EC2 in {num_azs}-AZ deployment. "
                             f"~{cross_az_gb:.1f}GB/month cross-AZ traffic estimate. "
                             f"Potential cost: ${monthly_cross_az_cost:.2f}/month. "
@@ -269,12 +271,13 @@ class CrossAZTransferPattern(BasePattern):
                         )
 
                         finding = Finding(
+                            pattern_id=self.PATTERN_ID,
                             resource_id=instance_id,
                             resource_type="EC2 Instance (Cross-AZ)",
                             region=region,
-                            monthly_cost=monthly_cross_az_cost,
-                            recommendation=recommendation,
-                            severity=severity,
+                            monthly_impact_usd=monthly_cross_az_cost,
+                            summary=summary,
+                            risk_tier=risk_tier,
                             safe_to_fix=False,
                             fix_command=None,
                             metadata={

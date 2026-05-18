@@ -7,7 +7,7 @@ Detects Secrets Manager secrets that are:
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class SecretsManagerPattern(BasePattern):
@@ -78,8 +78,8 @@ class SecretsManagerPattern(BasePattern):
 
             # Determine issues
             issues = []
-            severity = Severity.LOW
-            monthly_cost = self.SECRET_PRICE_PER_MONTH
+            risk_tier= RiskTier.LOW
+            monthly_impact_usd= self.SECRET_PRICE_PER_MONTH
 
             # Check for unused secret
             is_unused = days_since_access >= self.UNUSED_DAYS_THRESHOLD
@@ -91,11 +91,11 @@ class SecretsManagerPattern(BasePattern):
             if not is_unused and not no_rotation:
                 return
 
-            # Build recommendation
+            # Build summary
             if is_unused:
                 issues.append(f"not accessed in {days_since_access} days")
                 if days_since_access > 180:
-                    severity = Severity.MEDIUM
+                    risk_tier= RiskTier.MEDIUM
 
             if no_rotation:
                 issues.append("no rotation configured")
@@ -113,19 +113,20 @@ class SecretsManagerPattern(BasePattern):
             except Exception:
                 pass
 
-            recommendation = f"Secret '{secret_name}' issues: {', '.join(issues)}. "
+            summary= f"Secret '{secret_name}' issues: {', '.join(issues)}. "
             if is_unused:
-                recommendation += "Consider deleting if no longer needed."
+                summary += "Consider deleting if no longer needed."
             elif no_rotation:
-                recommendation += "Enable rotation for security best practices."
+                summary += "Enable rotation for security best practices."
 
             finding = Finding(
+                pattern_id=self.PATTERN_ID,
                 resource_id=secret_name,
                 resource_type="Secrets Manager Secret",
                 region=region,
-                monthly_cost=monthly_cost,
-                recommendation=recommendation,
-                severity=severity,
+                monthly_impact_usd=monthly_impact_usd,
+                summary=summary,
+                risk_tier=risk_tier,
                 safe_to_fix=is_unused and days_since_access > 180,  # Only safe if very old
                 fix_command=f"aws secretsmanager delete-secret --secret-id {secret_name} --recovery-window-in-days 30 --region {region}" if is_unused else None,
                 metadata={

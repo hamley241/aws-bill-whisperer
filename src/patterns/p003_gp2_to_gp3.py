@@ -3,7 +3,7 @@ Pattern 003: GP2 to GP3 Migration
 Detects EBS volumes using gp2 that could be migrated to gp3 for ~20% savings
 """
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class GP2ToGP3Pattern(BasePattern):
@@ -38,9 +38,9 @@ class GP2ToGP3Pattern(BasePattern):
                         iops = vol.get("Iops", 100)
 
                         # Calculate current monthly cost
-                        monthly_cost = size_gb * self.GP2_PRICE
+                        monthly_impact_usd= size_gb * self.GP2_PRICE
                         # Savings = 20% of current cost (GP2 is $0.10/GB, GP3 is $0.08/GB)
-                        potential_savings = monthly_cost * self.SAVINGS_RATE
+                        potential_savings = monthly_impact_usd * self.SAVINGS_RATE
 
                         # Determine if gp3 is suitable
                         can_migrate = self._can_migrate_to_gp3(vol)
@@ -48,18 +48,18 @@ class GP2ToGP3Pattern(BasePattern):
                         if not can_migrate:
                             continue
 
-                        # Determine severity based on volume size
+                        # Determine risk_tier based on volume size
                         if size_gb > 500:
-                            severity = Severity.CRITICAL
+                            risk_tier= RiskTier.HIGH
                         elif size_gb > 100:
-                            severity = Severity.HIGH
+                            risk_tier= RiskTier.HIGH
                         elif size_gb > 50:
-                            severity = Severity.MEDIUM
+                            risk_tier= RiskTier.MEDIUM
                         else:
-                            severity = Severity.LOW
+                            risk_tier= RiskTier.LOW
 
-                        # Build recommendation
-                        recommendation = (
+                        # Build summary
+                        summary= (
                             f"Migrate gp2 volume ({size_gb}GB, {iops} IOPS) to gp3. "
                             f"Potential savings: ~${potential_savings:.2f}/mo ({20}% reduction). "
                             f"Command: aws ec2 modify-volume --volume-id {volume_id} --volume-type gp3"
@@ -71,19 +71,20 @@ class GP2ToGP3Pattern(BasePattern):
                         actual_iops = max(gp3_iops, 3000)  # gp3 minimum is 3000
 
                         finding = Finding(
+                            pattern_id=self.PATTERN_ID,
                             resource_id=volume_id,
                             resource_type="EBS Volume",
                             region=region,
-                            monthly_cost=potential_savings,
-                            recommendation=recommendation,
-                            severity=severity,
+                            monthly_impact_usd=potential_savings,
+                            summary=summary,
+                            risk_tier=risk_tier,
                             safe_to_fix=True,  # gp2->gp3 migration is safe and non-disruptive
                             fix_command=f"aws ec2 modify-volume --volume-id {volume_id} --volume-type gp3 --iops {actual_iops} --region {region}",
                             metadata={
                                 "size_gb": size_gb,
                                 "current_type": "gp2",
                                 "proposed_type": "gp3",
-                                "current_monthly_cost": monthly_cost,
+                                "current_monthly_cost": monthly_impact_usd,
                                 "potential_savings": potential_savings,
                                 "state": state,
                                 "current_iops": iops,

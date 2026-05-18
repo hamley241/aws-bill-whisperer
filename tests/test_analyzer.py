@@ -122,16 +122,16 @@ class TestHandlerPatternIntegration:
         """Test that findings are converted to serializable dicts."""
         from unittest.mock import MagicMock, patch
         from analyzer.handler import _run_patterns
-        from patterns.base import Finding, Severity
+        from patterns.base import Finding, RiskTier
         
         # Create a mock finding
         mock_finding = Finding(
             resource_id='test-123',
             resource_type='Test Resource',
             region='us-east-1',
-            monthly_cost=10.0,
-            recommendation='Test recommendation',
-            severity=Severity.HIGH,
+            monthly_impact_usd=10.0,
+            summary='Test summary',
+            risk_tier=RiskTier.HIGH,
             safe_to_fix=True,
             fix_command='test command',
             metadata={'key': 'value'}
@@ -151,8 +151,8 @@ class TestHandlerPatternIntegration:
         assert findings[0]['resource_id'] == 'test-123'
         assert findings[0]['pattern_id'] == '001'
         assert findings[0]['pattern_name'] == 'Test Pattern'
-        assert findings[0]['monthly_cost'] == 10.0
-        assert findings[0]['severity'] == 'high'
+        assert findings[0]['monthly_impact_usd'] == 10.0
+        assert findings[0]['risk_tier'] == 'high'
 
     def test_run_patterns_handles_pattern_errors_gracefully(self):
         """Test that pattern errors don't crash the handler."""

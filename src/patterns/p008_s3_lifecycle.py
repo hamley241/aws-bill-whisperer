@@ -6,7 +6,7 @@ Intelligent-Tiering, Glacier transitions, or object expiration.
 
 from datetime import datetime, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class S3LifecyclePattern(BasePattern):
@@ -67,39 +67,40 @@ class S3LifecyclePattern(BasePattern):
                     bucket_type = self._classify_bucket(bucket_name)
 
                     # Calculate potential savings based on bucket type
-                    monthly_cost = bucket_size_gb * self.STANDARD_PRICE_PER_GB
+                    monthly_impact_usd= bucket_size_gb * self.STANDARD_PRICE_PER_GB
                     potential_savings = self._calculate_potential_savings(
                         bucket_type, bucket_size_gb
                     )
 
-                    # Build recommendation
-                    recommendation = self._build_recommendation(
+                    # Build summary
+                    summary= self._build_recommendation(
                         bucket_name, bucket_type, bucket_size_gb, potential_savings
                     )
 
-                    # Determine severity
+                    # Determine risk_tier
                     if potential_savings > 100:
-                        severity = Severity.HIGH
+                        risk_tier= RiskTier.HIGH
                     elif potential_savings > 25:
-                        severity = Severity.MEDIUM
+                        risk_tier= RiskTier.MEDIUM
                     else:
-                        severity = Severity.LOW
+                        risk_tier= RiskTier.LOW
 
                     # Age in days
                     age_days = (datetime.now(timezone.utc) - create_date).days
 
                     finding = Finding(
+                        pattern_id=self.PATTERN_ID,
                         resource_id=bucket_name,
                         resource_type="S3 Bucket",
                         region=bucket_region or 'us-east-1',
-                        monthly_cost=potential_savings,  # Report potential savings
-                        recommendation=recommendation,
-                        severity=severity,
+                        monthly_impact_usd=potential_savings,  # Report potential savings
+                        summary=summary,
+                        risk_tier=risk_tier,
                         safe_to_fix=False,  # Lifecycle changes need review
                         fix_command=None,
                         metadata={
                             "bucket_size_gb": round(bucket_size_gb, 2),
-                            "current_monthly_cost": round(monthly_cost, 2),
+                            "current_monthly_cost": round(monthly_impact_usd, 2),
                             "potential_savings": round(potential_savings, 2),
                             "bucket_type": bucket_type,
                             "has_lifecycle": False,
@@ -226,7 +227,7 @@ class S3LifecyclePattern(BasePattern):
         bucket_size_gb: float,
         potential_savings: float,
     ) -> str:
-        """Build actionable recommendation based on bucket type"""
+        """Build actionable summary based on bucket type"""
         if bucket_type == 'logs':
             return (
                 f"Add lifecycle rule: transition logs to Glacier after 30 days, "
@@ -260,5 +261,5 @@ class S3LifecyclePattern(BasePattern):
         raise NotImplementedError(
             "S3 lifecycle rule changes require manual review to avoid data loss. "
             "Review bucket contents and apply appropriate lifecycle policies via "
-            "AWS Console or CLI based on the recommendation."
+            "AWS Console or CLI based on the summary."
         )

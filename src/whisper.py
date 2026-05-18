@@ -18,7 +18,7 @@ import json
 import sys
 
 from patterns import discover_patterns
-from patterns.base import Finding
+from patterns.base import Finding, RiskTier
 
 
 def get_pattern_by_id(pattern_id: str) -> type | None:
@@ -40,9 +40,9 @@ def format_finding(finding: Finding, verbose: bool = False) -> str:
     lines = [
         f"\n  📍 {finding.resource_type}: {finding.resource_id}",
         f"     Region: {finding.region}",
-        f"     Monthly Cost: ${finding.monthly_cost:.2f}",
-        f"     Severity: {finding.severity.value.upper()}",
-        f"     Recommendation: {finding.recommendation}",
+        f"     Monthly Impact: ${finding.monthly_impact_usd:.2f}",
+        f"     Risk: {finding.risk_tier.value.upper()}  (confidence {finding.confidence:.0%})",
+        f"     Summary: {finding.summary}",
     ]
     if finding.safe_to_fix:
         lines.append("     ✅ Safe to auto-fix")
@@ -89,7 +89,7 @@ def cmd_scan(args):
                 "name": pattern.NAME,
                 "description": pattern.DESCRIPTION,
                 "findings": [f.to_dict() for f in findings],
-                "total_monthly_waste": sum(f.monthly_cost for f in findings),
+                "total_monthly_waste": sum(f.monthly_impact_usd for f in findings),
                 "finding_count": len(findings)
             })
             all_findings.extend(findings)
@@ -107,7 +107,7 @@ def cmd_scan(args):
             })
 
     # Output results
-    total_waste = sum(f.monthly_cost for f in all_findings)
+    total_waste = sum(f.monthly_impact_usd for f in all_findings)
 
     if args.json:
         output = {
@@ -139,15 +139,18 @@ def cmd_scan(args):
             print(f"   Found {len(findings)} issue(s), monthly waste: ${pattern_data['total_monthly_waste']:.2f}")
             for f in findings:
                 finding_obj = Finding(
+                    pattern_id=f.get('pattern_id', ''),
                     resource_id=f['resource_id'],
                     resource_type=f['resource_type'],
                     region=f['region'],
-                    monthly_cost=f['monthly_cost'],
-                    recommendation=f['recommendation'],
-                    severity=f['severity'],
+                    monthly_impact_usd=f['monthly_impact_usd'],
+                    summary=f['summary'],
+                    risk_tier=RiskTier(f['risk_tier']),
+                    confidence=f.get('confidence', 0.8),
                     safe_to_fix=f['safe_to_fix'],
                     fix_command=f.get('fix_command'),
-                    metadata=f.get('metadata', {})
+                    evidence=f.get('evidence', {}),
+                    metadata=f.get('metadata', {}),
                 )
                 print(format_finding(finding_obj, args.verbose))
 

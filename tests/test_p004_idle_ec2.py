@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p004_idle_ec2 import IdleEC2Pattern
-from patterns.base import Severity
+from patterns.base import RiskTier
 
 
 class TestIdleEC2Pattern:
@@ -69,8 +69,8 @@ class TestIdleEC2Pattern:
         assert findings[0].resource_id == 'i-idle123'
         assert findings[0].resource_type == 'EC2 Instance'
         assert findings[0].safe_to_fix is False  # Manual intervention required
-        assert 't3.medium' in findings[0].recommendation
-        assert 'test-server' in findings[0].recommendation
+        assert 't3.medium' in findings[0].summary
+        assert 'test-server' in findings[0].summary
 
     def test_no_finding_for_active_instance(self):
         """
@@ -168,7 +168,7 @@ class TestIdleEC2Pattern:
         """
         GIVEN: Idle instances with different CPU levels and costs
         WHEN: The pattern scans
-        THEN: Severity is assigned based on CPU and monthly cost
+        THEN: RiskTier is assigned based on CPU and monthly cost
         """
         # GIVEN
         mock_session = MagicMock()
@@ -222,13 +222,13 @@ class TestIdleEC2Pattern:
         
         # THEN
         assert len(findings) == 3
-        severities = {f.resource_id: f.severity for f in findings}
+        severities = {f.resource_id: f.risk_tier for f in findings}
         
         # Very idle + expensive should be critical/high
-        assert severities['i-critical'] in [Severity.CRITICAL, Severity.HIGH]
+        assert severities['i-critical'] in [RiskTier.HIGH, RiskTier.HIGH]
         # Other instances should have appropriate severities
-        assert severities['i-high'] == Severity.HIGH
-        assert severities['i-medium'] == Severity.MEDIUM
+        assert severities['i-high'] == RiskTier.HIGH
+        assert severities['i-medium'] == RiskTier.MEDIUM
 
     def test_handles_missing_cloudwatch_data(self):
         """
@@ -423,7 +423,7 @@ class TestIdleEC2Pattern:
         assert len(findings) == 2
         
         # t3.micro should be much cheaper than m5.large
-        costs = {f.resource_id: f.monthly_cost for f in findings}
+        costs = {f.resource_id: f.monthly_impact_usd for f in findings}
         assert costs['i-t3-micro'] < costs['i-m5-large']
         assert costs['i-t3-micro'] == 0.0104  # t3.micro hourly cost
         assert costs['i-m5-large'] == 0.096  # m5.large hourly cost

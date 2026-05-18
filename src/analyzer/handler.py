@@ -108,24 +108,14 @@ def _run_patterns(regions: list[str] = None) -> list[dict]:
         try:
             pattern = PatternClass()
             findings = pattern.scan(regions=regions)
-            
-            # Convert findings to dicts for JSON serialization
+
             for finding in findings:
-                finding_dict = {
-                    'pattern_id': PatternClass.PATTERN_ID,
-                    'pattern_name': PatternClass.NAME,
-                    'resource_id': finding.resource_id,
-                    'resource_type': finding.resource_type,
-                    'region': finding.region,
-                    'monthly_cost': finding.monthly_cost,
-                    'recommendation': finding.recommendation,
-                    'severity': finding.severity.value if hasattr(finding.severity, 'value') else str(finding.severity),
-                    'safe_to_fix': finding.safe_to_fix,
-                    'fix_command': finding.fix_command,
-                    'metadata': finding.metadata or {},
-                }
+                finding_dict = finding.to_dict()
+                if not finding_dict.get('pattern_id'):
+                    finding_dict['pattern_id'] = PatternClass.PATTERN_ID
+                finding_dict['pattern_name'] = PatternClass.NAME
                 all_findings.append(finding_dict)
-                
+
         except Exception as e:
             logger.warning(f"Pattern {PatternClass.PATTERN_ID} failed: {e}")
             continue

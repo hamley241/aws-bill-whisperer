@@ -1,17 +1,25 @@
 """
-Base Pattern class - extend this to add new waste patterns
+Base Pattern class - extend this to add new waste patterns.
+
+The Finding dataclass below is the universal currency of the system
+(see CLAUDE.md principle 2). Every component that produces or consumes
+detection output speaks Finding objects.
 """
 
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
-class Severity(Enum):
+SCHEMA_VERSION = "1"
+
+
+class RiskTier(Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
-    CRITICAL = "critical"
 
 
 class Complexity(Enum):
@@ -22,42 +30,66 @@ class Complexity(Enum):
 
 @dataclass
 class Finding:
-    """A single waste finding"""
+    """A single waste finding. See CLAUDE.md principle 2 for the schema contract."""
+
+    # Required: caller must provide
     resource_id: str
     resource_type: str
     region: str
-    monthly_cost: float
-    recommendation: str
-    severity: Severity = Severity.MEDIUM
-    metadata: dict = field(default_factory=dict)
-    safe_to_fix: bool = False
+    monthly_impact_usd: float
+    summary: str
+
+    # Optional, populated lazily or by the producing pattern
+    pattern_id: str = ""
+    resource_arn: str | None = None
+    account_id: str | None = None
+    risk_tier: RiskTier = RiskTier.MEDIUM
+    confidence: float = 0.8
+    explanation: str | None = None
     fix_command: str | None = None
+    fix_pr: str | None = None
+    evidence: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    safe_to_fix: bool = False
+
+    # Auto-populated
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    schema_version: str = SCHEMA_VERSION
 
     def to_dict(self) -> dict:
         return {
+            "id": self.id,
+            "schema_version": self.schema_version,
+            "pattern_id": self.pattern_id,
             "resource_id": self.resource_id,
             "resource_type": self.resource_type,
+            "resource_arn": self.resource_arn,
+            "account_id": self.account_id,
             "region": self.region,
-            "monthly_cost": round(self.monthly_cost, 2),
-            "recommendation": self.recommendation,
-            "severity": self.severity.value,
-            "safe_to_fix": self.safe_to_fix,
+            "monthly_impact_usd": round(self.monthly_impact_usd, 2),
+            "risk_tier": self.risk_tier.value,
+            "confidence": round(self.confidence, 3),
+            "summary": self.summary,
+            "explanation": self.explanation,
             "fix_command": self.fix_command,
+            "fix_pr": self.fix_pr,
+            "evidence": self.evidence,
             "metadata": self.metadata,
+            "safe_to_fix": self.safe_to_fix,
         }
 
 
 class BasePattern(ABC):
     """
     Base class for all waste detection patterns.
-    
+
     To add a new pattern:
     1. Create a new file in src/patterns/ (e.g., my_pattern.py)
     2. Extend BasePattern
     3. Define PATTERN_ID, NAME, DESCRIPTION, COMPLEXITY
     4. Implement scan() method
     5. Optionally implement fix() method
-    
+
     The pattern will be auto-discovered and included in scans.
     """
 
@@ -81,23 +113,23 @@ class BasePattern(ABC):
     def scan(self, regions: list[str] = None) -> list[Finding]:
         """
         Scan for this waste pattern.
-        
+
         Args:
             regions: List of AWS regions to scan. None = all regions.
-            
+
         Returns:
-            List of Finding objects
+            List of Finding objects (each tagged with pattern_id).
         """
         pass
 
     def fix(self, finding: Finding, dry_run: bool = True) -> bool:
         """
         Apply fix for a finding.
-        
+
         Args:
             finding: The finding to fix
             dry_run: If True, only simulate the fix
-            
+
         Returns:
             True if fix was applied/would be applied successfully
         """
@@ -120,7 +152,7 @@ class BasePattern(ABC):
     @property
     def total_monthly_waste(self) -> float:
         """Sum of monthly costs from all findings"""
-        return sum(f.monthly_cost for f in self._findings)
+        return sum(f.monthly_impact_usd for f in self._findings)
 
     def __repr__(self):
         return f"<Pattern {self.PATTERN_ID}: {self.NAME}>"

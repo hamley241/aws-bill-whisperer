@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p003_gp2_to_gp3 import GP2ToGP3Pattern
-from patterns.base import Severity
+from patterns.base import RiskTier
 
 
 class TestGP2ToGP3Pattern:
@@ -50,9 +50,9 @@ class TestGP2ToGP3Pattern:
         assert len(findings) == 1
         assert findings[0].resource_id == 'vol-gp2-test'
         # 100GB * $0.10/GB = $10/mo, 20% savings = $2/mo
-        assert findings[0].monthly_cost == 2.0
+        assert findings[0].monthly_impact_usd == 2.0
         assert findings[0].safe_to_fix is True
-        assert 'gp3' in findings[0].recommendation
+        assert 'gp3' in findings[0].summary
         assert findings[0].metadata['current_type'] == 'gp2'
         assert findings[0].metadata['proposed_type'] == 'gp3'
 
@@ -84,7 +84,7 @@ class TestGP2ToGP3Pattern:
         """
         GIVEN: gp2 volumes of different sizes
         WHEN: The pattern scans
-        THEN: Larger volumes get higher severity ratings
+        THEN: Larger volumes get higher risk_tier ratings
         """
         # GIVEN
         mock_session = MagicMock()
@@ -110,10 +110,10 @@ class TestGP2ToGP3Pattern:
         
         # THEN
         assert len(findings) == 3
-        severities = {f.resource_id: f.severity for f in findings}
-        assert severities['vol-small'] == Severity.LOW  # < 50GB
-        assert severities['vol-medium'] == Severity.HIGH  # > 100GB
-        assert severities['vol-large'] == Severity.CRITICAL  # > 500GB
+        severities = {f.resource_id: f.risk_tier for f in findings}
+        assert severities['vol-small'] == RiskTier.LOW  # < 50GB
+        assert severities['vol-medium'] == RiskTier.HIGH  # > 100GB
+        assert severities['vol-large'] == RiskTier.HIGH  # > 500GB
 
     def test_skips_volumes_that_cannot_migrate(self):
         """
@@ -198,9 +198,9 @@ class TestGP2ToGP3Pattern:
             resource_id='vol-test',
             resource_type='EBS Volume',
             region='us-east-1',
-            monthly_cost=1.0,
-            recommendation='Test',
-            severity=Severity.LOW,
+            monthly_impact_usd=1.0,
+            summary='Test',
+            risk_tier=RiskTier.LOW,
             safe_to_fix=True,
             fix_command='test',
             metadata={'proposed_iops': 3000}
@@ -234,9 +234,9 @@ class TestGP2ToGP3Pattern:
             resource_id='vol-migrate',
             resource_type='EBS Volume',
             region='us-west-2',
-            monthly_cost=2.0,
-            recommendation='Test',
-            severity=Severity.MEDIUM,
+            monthly_impact_usd=2.0,
+            summary='Test',
+            risk_tier=RiskTier.MEDIUM,
             safe_to_fix=True,
             fix_command='test',
             metadata={'proposed_iops': 4000}
@@ -269,9 +269,9 @@ class TestGP2ToGP3Pattern:
             resource_id='vol-unsafe',
             resource_type='EBS Volume',
             region='us-east-1',
-            monthly_cost=1.0,
-            recommendation='Test',
-            severity=Severity.LOW,
+            monthly_impact_usd=1.0,
+            summary='Test',
+            risk_tier=RiskTier.LOW,
             safe_to_fix=False,  # Not safe to fix
             fix_command='test'
         )
@@ -306,7 +306,7 @@ class TestGP2ToGP3Pattern:
         """
         GIVEN: A gp2 volume of known size
         WHEN: The pattern calculates potential savings
-        THEN: Savings = monthly_cost * SAVINGS_RATE (20%)
+        THEN: Savings = monthly_impact_usd * SAVINGS_RATE (20%)
         
         Bug fix: The original code had `* 0.5` which halved the savings incorrectly.
         """
@@ -343,7 +343,7 @@ class TestGP2ToGP3Pattern:
         # Savings at 20% = $50 * 0.20 = $10
         assert findings[0].metadata['current_monthly_cost'] == 50.0
         assert findings[0].metadata['potential_savings'] == 10.0
-        assert findings[0].monthly_cost == 10.0  # This is the savings amount
+        assert findings[0].monthly_impact_usd == 10.0  # This is the savings amount
 
     def test_metadata_contains_all_required_fields(self):
         """

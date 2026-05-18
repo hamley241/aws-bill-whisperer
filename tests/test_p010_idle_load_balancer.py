@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p010_idle_load_balancer import IdleLoadBalancerPattern
-from patterns.base import Severity
+from patterns.base import RiskTier
 
 
 class TestIdleLoadBalancerPattern:
@@ -74,7 +74,7 @@ class TestIdleLoadBalancerPattern:
         assert findings[0].resource_id == 'idle-alb'
         assert findings[0].resource_type == 'ALB Load Balancer'
         assert 'no targets registered' in findings[0].metadata['idle_reason']
-        assert findings[0].monthly_cost > 0
+        assert findings[0].monthly_impact_usd > 0
 
     def test_finds_nlb_with_zero_traffic(self):
         """
@@ -185,7 +185,7 @@ class TestIdleLoadBalancerPattern:
         assert len(findings) == 1
         assert findings[0].resource_id == 'old-classic-elb'
         assert findings[0].resource_type == 'Classic Load Balancer'
-        assert 'deprecated' in findings[0].recommendation
+        assert 'deprecated' in findings[0].summary
         assert findings[0].metadata['is_deprecated'] is True
 
     def test_skips_active_load_balancer(self):
@@ -253,7 +253,7 @@ class TestIdleLoadBalancerPattern:
         """
         GIVEN: An idle LB older than 30 days with no targets
         WHEN: The pattern scans
-        THEN: Finding has HIGH severity
+        THEN: Finding has HIGH risk_tier
         """
         # GIVEN
         mock_session = MagicMock()
@@ -295,7 +295,7 @@ class TestIdleLoadBalancerPattern:
 
         # THEN
         assert len(findings) == 1
-        assert findings[0].severity == Severity.HIGH
+        assert findings[0].risk_tier == RiskTier.HIGH
         assert findings[0].metadata['age_days'] == 90
 
     def test_safe_to_fix_for_old_no_target_lb(self):
@@ -465,15 +465,15 @@ class TestIdleLoadBalancerPattern:
         mock_elbv2 = MagicMock()
         mock_session.client.return_value = mock_elbv2
 
-        from patterns.base import Finding, Severity
+        from patterns.base import Finding, RiskTier
 
         finding = Finding(
             resource_id='test-alb',
             resource_type='ALB Load Balancer',
             region='us-east-1',
-            monthly_cost=16.20,
-            recommendation='Delete idle ALB',
-            severity=Severity.HIGH,
+            monthly_impact_usd=16.20,
+            summary='Delete idle ALB',
+            risk_tier=RiskTier.HIGH,
             safe_to_fix=True,
             fix_command='aws elbv2 delete-load-balancer ...',
             metadata={
@@ -501,15 +501,15 @@ class TestIdleLoadBalancerPattern:
         # GIVEN
         mock_session = MagicMock()
 
-        from patterns.base import Finding, Severity
+        from patterns.base import Finding, RiskTier
 
         finding = Finding(
             resource_id='test-alb',
             resource_type='ALB Load Balancer',
             region='us-east-1',
-            monthly_cost=16.20,
-            recommendation='Review before deleting',
-            severity=Severity.MEDIUM,
+            monthly_impact_usd=16.20,
+            summary='Review before deleting',
+            risk_tier=RiskTier.MEDIUM,
             safe_to_fix=False,  # Not safe
             metadata={'has_targets': True}
         )

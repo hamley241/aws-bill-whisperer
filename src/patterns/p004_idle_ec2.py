@@ -4,7 +4,7 @@ Detects EC2 instances with <5% average CPU utilization over 14 days
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class IdleEC2Pattern(BasePattern):
@@ -63,20 +63,20 @@ class IdleEC2Pattern(BasePattern):
                         continue
 
                     # Calculate monthly cost estimate
-                    monthly_cost = self._get_instance_monthly_cost(instance_type, region)
+                    monthly_impact_usd= self._get_instance_monthly_cost(instance_type, region)
 
-                    # Determine severity
-                    if avg_cpu < 1.0 and monthly_cost > 100:
-                        severity = Severity.CRITICAL
+                    # Determine risk_tier
+                    if avg_cpu < 1.0 and monthly_impact_usd > 100:
+                        risk_tier= RiskTier.HIGH
                     elif avg_cpu < 2.0:
-                        severity = Severity.HIGH
+                        risk_tier= RiskTier.HIGH
                     elif avg_cpu < 5.0:
-                        severity = Severity.MEDIUM
+                        risk_tier= RiskTier.MEDIUM
                     else:
-                        severity = Severity.LOW
+                        risk_tier= RiskTier.LOW
 
-                    # Build recommendation
-                    recommendation = (
+                    # Build summary
+                    summary= (
                         f"EC2 instance has {avg_cpu:.1f}% CPU over {self.LOOKBACK_DAYS} days. "
                         f"Consider stopping, terminating, or downsizing. "
                         f"Instance: {instance_type}, Name: {name}"
@@ -87,12 +87,13 @@ class IdleEC2Pattern(BasePattern):
                     has_purpose = any(t.lower() in tags for t in purpose_tags)
 
                     finding = Finding(
+                        pattern_id=self.PATTERN_ID,
                         resource_id=instance_id,
                         resource_type="EC2 Instance",
                         region=region,
-                        monthly_cost=monthly_cost,
-                        recommendation=recommendation,
-                        severity=severity,
+                        monthly_impact_usd=monthly_impact_usd,
+                        summary=summary,
+                        risk_tier=risk_tier,
                         safe_to_fix=False,  # Stopping instances should be manual
                         fix_command=f"aws ec2 stop-instances --instance-ids {instance_id} --region {region}",
                         metadata={

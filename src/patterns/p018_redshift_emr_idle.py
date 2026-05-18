@@ -6,7 +6,7 @@ These are very expensive resources that should be terminated when not in use.
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class RedshiftEMRIdlePattern(BasePattern):
@@ -111,21 +111,22 @@ class RedshiftEMRIdlePattern(BasePattern):
         # Calculate cost
         multiplier = self.REDSHIFT_INSTANCE_MULTIPLIER.get(node_type, 1.0)
         hourly_cost = self.REDSHIFT_BASE_HOURLY * multiplier * num_nodes
-        monthly_cost = hourly_cost * 730  # hours per month
+        monthly_impact_usd= hourly_cost * 730  # hours per month
 
         # Get cluster age and last modified time
         create_time = cluster.get('ClusterCreateTime')
         cluster_age_days = (datetime.now(timezone.utc) - create_time).days if create_time else 0
 
         finding = Finding(
+            pattern_id=self.PATTERN_ID,
             resource_id=cluster_id,
             resource_type="Redshift Cluster",
             region=region,
-            monthly_cost=monthly_cost,
-            recommendation=f"Idle Redshift cluster ({node_type} x{num_nodes}). "
+            monthly_impact_usd=monthly_impact_usd,
+            summary=f"Idle Redshift cluster ({node_type} x{num_nodes}). "
                           f"No connections for {self.IDLE_HOURS_THRESHOLD}h. "
                           f"Consider pausing, snapshotting, or deleting.",
-            severity=Severity.HIGH,
+            risk_tier=RiskTier.HIGH,
             safe_to_fix=False,  # Cluster deletion is destructive
             fix_command=f"aws redshift pause-cluster --cluster-identifier {cluster_id} --region {region}",
             metadata={
@@ -241,17 +242,18 @@ class RedshiftEMRIdlePattern(BasePattern):
             hourly_cost = self.EMR_CORE_HOURLY * multiplier * max(1, total_core_nodes)
             # Add EC2 cost estimate (roughly 3x EMR fee for m5 instances)
             hourly_cost *= 3
-            monthly_cost = hourly_cost * 730
+            monthly_impact_usd= hourly_cost * 730
 
             finding = Finding(
+                pattern_id=self.PATTERN_ID,
                 resource_id=cluster_id,
                 resource_type="EMR Cluster",
                 region=region,
-                monthly_cost=monthly_cost,
-                recommendation=f"Idle EMR cluster in {status_state} state. "
+                monthly_impact_usd=monthly_impact_usd,
+                summary=f"Idle EMR cluster in {status_state} state. "
                               f"No jobs for {self.IDLE_HOURS_THRESHOLD}h. "
                               f"Core nodes: {total_core_nodes}. Consider terminating.",
-                severity=Severity.HIGH,
+                risk_tier=RiskTier.HIGH,
                 safe_to_fix=False,  # EMR termination is destructive
                 fix_command=f"aws emr terminate-clusters --cluster-ids {cluster_id} --region {region}",
                 metadata={

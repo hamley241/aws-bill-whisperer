@@ -7,7 +7,7 @@ Many functions are left at default 1024MB when 128-256MB would suffice.
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class LambdaMemoryPattern(BasePattern):
@@ -113,28 +113,29 @@ class LambdaMemoryPattern(BasePattern):
         if monthly_savings < 1.0:
             return
 
-        # Determine severity
+        # Determine risk_tier
         savings_percent = (memory_savings / configured_memory) * 100
         if savings_percent > 75 and monthly_savings > 50:
-            severity = Severity.HIGH
+            risk_tier= RiskTier.HIGH
         elif savings_percent > 50 or monthly_savings > 20:
-            severity = Severity.MEDIUM
+            risk_tier= RiskTier.MEDIUM
         else:
-            severity = Severity.LOW
+            risk_tier= RiskTier.LOW
 
-        recommendation = (
+        summary= (
             f"Lambda '{function_name}' has {configured_memory}MB configured but only uses "
             f"~{max_memory_used:.0f}MB max. Recommend {recommended_memory}MB "
             f"(saves ${monthly_savings:.2f}/mo, {savings_percent:.0f}% reduction)."
         )
 
         finding = Finding(
+            pattern_id=self.PATTERN_ID,
             resource_id=function_arn,
             resource_type="Lambda Function",
             region=region,
-            monthly_cost=monthly_savings,
-            recommendation=recommendation,
-            severity=severity,
+            monthly_impact_usd=monthly_savings,
+            summary=summary,
+            risk_tier=risk_tier,
             safe_to_fix=True,  # Memory changes are reversible
             fix_command=f"aws lambda update-function-configuration --function-name {function_name} --memory-size {recommended_memory} --region {region}",
             metadata={
