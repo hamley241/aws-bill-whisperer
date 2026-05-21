@@ -7,7 +7,7 @@ other features. Forgotten dev/test stages accumulate charges.
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class APIGWUnusedStagesPattern(BasePattern):
@@ -104,47 +104,48 @@ class APIGWUnusedStagesPattern(BasePattern):
             return  # Not unused
 
         # Calculate monthly cost (primarily cache if enabled)
-        monthly_cost = 0.0
+        monthly_impact_usd= 0.0
         if cache_cluster_enabled:
             hourly_cost = self.CACHE_HOURLY_COST.get(cache_cluster_size, 0.02)
-            monthly_cost = hourly_cost * 730  # Hours per month
+            monthly_impact_usd= hourly_cost * 730  # Hours per month
 
         # Even without cache, unused stages represent cleanup opportunity
         # But we only flag as findings if there's actual cost
-        if monthly_cost < 1.0 and not cache_cluster_enabled:
-            # Still report but with lower severity for cleanup purposes
-            monthly_cost = 0.0  # No direct cost, but clutters the account
+        if monthly_impact_usd < 1.0 and not cache_cluster_enabled:
+            # Still report but with lower risk_tier for cleanup purposes
+            monthly_impact_usd= 0.0  # No direct cost, but clutters the account
 
-        # Determine severity
-        if cache_cluster_enabled and monthly_cost > 50:
-            severity = Severity.HIGH
+        # Determine risk_tier
+        if cache_cluster_enabled and monthly_impact_usd > 50:
+            risk_tier= RiskTier.HIGH
         elif cache_cluster_enabled:
-            severity = Severity.MEDIUM
+            risk_tier= RiskTier.MEDIUM
         else:
-            severity = Severity.LOW
+            risk_tier= RiskTier.LOW
 
         # Check if it's a common test/dev stage name
         test_indicators = ["dev", "test", "staging", "beta", "sandbox", "demo"]
         is_likely_test = any(ind in stage_name.lower() for ind in test_indicators)
 
-        recommendation = (
+        summary= (
             f"REST API stage '{api_name}/{stage_name}' has zero requests in {self.LOOKBACK_DAYS} days. "
         )
         if cache_cluster_enabled:
-            recommendation += f"Cache enabled ({cache_cluster_size}GB) costs ${monthly_cost:.2f}/mo. "
+            summary += f"Cache enabled ({cache_cluster_size}GB) costs ${monthly_impact_usd:.2f}/mo. "
         if is_likely_test:
-            recommendation += "Appears to be a test/dev stage. "
-        recommendation += "Consider deleting if no longer needed."
+            summary += "Appears to be a test/dev stage. "
+        summary += "Consider deleting if no longer needed."
 
         resource_id = f"arn:aws:apigateway:{region}::/restapis/{api_id}/stages/{stage_name}"
 
         finding = Finding(
+            pattern_id=self.PATTERN_ID,
             resource_id=resource_id,
             resource_type="API Gateway Stage (REST)",
             region=region,
-            monthly_cost=monthly_cost,
-            recommendation=recommendation,
-            severity=severity,
+            monthly_impact_usd=monthly_impact_usd,
+            summary=summary,
+            risk_tier=risk_tier,
             safe_to_fix=is_likely_test,  # More cautious with prod-like names
             fix_command=f"aws apigateway delete-stage --rest-api-id {api_id} --stage-name {stage_name} --region {region}",
             metadata={
@@ -239,15 +240,15 @@ class APIGWUnusedStagesPattern(BasePattern):
 
         # HTTP APIs have no cache, so cost is $0 when unused
         # But still worth flagging for cleanup
-        monthly_cost = 0.0
+        monthly_impact_usd= 0.0
 
-        # Determine severity (low since no direct cost)
-        severity = Severity.LOW
+        # Determine risk_tier (low since no direct cost)
+        risk_tier= RiskTier.LOW
 
         test_indicators = ["dev", "test", "staging", "beta", "sandbox", "demo", "$default"]
         is_likely_test = any(ind in stage_name.lower() for ind in test_indicators)
 
-        recommendation = (
+        summary= (
             f"{protocol_type} API stage '{api_name}/{stage_name}' has zero "
             f"{'messages' if protocol_type == 'WEBSOCKET' else 'requests'} in "
             f"{self.LOOKBACK_DAYS} days. Consider deleting if no longer needed."
@@ -256,12 +257,13 @@ class APIGWUnusedStagesPattern(BasePattern):
         resource_id = f"arn:aws:apigateway:{region}::/apis/{api_id}/stages/{stage_name}"
 
         finding = Finding(
+            pattern_id=self.PATTERN_ID,
             resource_id=resource_id,
             resource_type=f"API Gateway Stage ({protocol_type})",
             region=region,
-            monthly_cost=monthly_cost,
-            recommendation=recommendation,
-            severity=severity,
+            monthly_impact_usd=monthly_impact_usd,
+            summary=summary,
+            risk_tier=risk_tier,
             safe_to_fix=is_likely_test,
             fix_command=f"aws apigatewayv2 delete-stage --api-id {api_id} --stage-name {stage_name} --region {region}",
             metadata={

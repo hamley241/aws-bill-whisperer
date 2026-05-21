@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p005_old_snapshots import OldSnapshotsPattern
-from patterns.base import Severity
+from patterns.base import RiskTier
 
 
 class TestOldSnapshotsPattern:
@@ -52,7 +52,7 @@ class TestOldSnapshotsPattern:
         # THEN
         assert len(findings) == 1
         assert findings[0].resource_id == 'snap-old'
-        assert findings[0].monthly_cost == 5.0  # 100GB * $0.05
+        assert findings[0].monthly_impact_usd == 5.0  # 100GB * $0.05
 
     def test_ignores_recent_snapshots(self):
         """

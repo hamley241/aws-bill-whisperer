@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p002_unattached_eip import UnattachedEIPPattern
-from patterns.base import Severity
+from patterns.base import RiskTier
 
 
 class TestUnattachedEIPPattern:
@@ -44,10 +44,10 @@ class TestUnattachedEIPPattern:
         # THEN
         assert len(findings) == 1
         assert findings[0].resource_id == 'eipalloc-123'
-        assert abs(findings[0].monthly_cost - 3.6) < 0.01  # $0.005/hour * 24 * 30
-        assert findings[0].severity == Severity.LOW
+        assert abs(findings[0].monthly_impact_usd - 3.6) < 0.01  # $0.005/hour * 24 * 30
+        assert findings[0].risk_tier == RiskTier.LOW
         assert findings[0].safe_to_fix is True
-        assert '1.2.3.4' in findings[0].recommendation
+        assert '1.2.3.4' in findings[0].summary
 
     def test_no_finding_when_eip_attached_to_instance(self):
         """
@@ -182,9 +182,9 @@ class TestUnattachedEIPPattern:
             resource_id='eipalloc-test',
             resource_type='Elastic IP',
             region='us-east-1',
-            monthly_cost=3.6,
-            recommendation='Test',
-            severity=Severity.LOW,
+            monthly_impact_usd=3.6,
+            summary='Test',
+            risk_tier=RiskTier.LOW,
             safe_to_fix=True,
             fix_command='test'
         )
@@ -214,9 +214,9 @@ class TestUnattachedEIPPattern:
             resource_id='eipalloc-release',
             resource_type='Elastic IP',
             region='us-west-2',
-            monthly_cost=3.6,
-            recommendation='Test',
-            severity=Severity.LOW,
+            monthly_impact_usd=3.6,
+            summary='Test',
+            risk_tier=RiskTier.LOW,
             safe_to_fix=True,
             fix_command='test'
         )

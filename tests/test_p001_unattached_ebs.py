@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p001_unattached_ebs import UnattachedEBSPattern
-from patterns.base import Severity
+from patterns.base import RiskTier
 
 
 class TestUnattachedEBSPattern:
@@ -47,7 +47,7 @@ class TestUnattachedEBSPattern:
         # THEN
         assert len(findings) == 1
         assert findings[0].resource_id == 'vol-123'
-        assert findings[0].monthly_cost == 10.0  # 100GB * $0.10
+        assert findings[0].monthly_impact_usd == 10.0  # 100GB * $0.10
         assert findings[0].safe_to_fix is True  # Has snapshot and >7 days old
 
     def test_no_finding_when_all_volumes_attached(self):
@@ -75,7 +75,7 @@ class TestUnattachedEBSPattern:
         """
         GIVEN: An unattached volume older than 30 days costing >$50/month
         WHEN: The pattern scans
-        THEN: The finding has HIGH severity
+        THEN: The finding has HIGH risk_tier
         """
         # GIVEN
         mock_session = MagicMock()
@@ -101,8 +101,8 @@ class TestUnattachedEBSPattern:
         
         # THEN
         assert len(findings) == 1
-        assert findings[0].severity == Severity.HIGH
-        assert findings[0].monthly_cost == 100.0
+        assert findings[0].risk_tier == RiskTier.HIGH
+        assert findings[0].monthly_impact_usd == 100.0
 
     def test_unsafe_to_delete_without_snapshot(self):
         """
@@ -165,7 +165,7 @@ class TestUnattachedEBSPattern:
         
         # THEN
         assert len(findings) == 3
-        costs = {f.resource_id: f.monthly_cost for f in findings}
+        costs = {f.resource_id: f.monthly_impact_usd for f in findings}
         assert costs['vol-gp2'] == 10.0   # $0.10/GB
         assert costs['vol-gp3'] == 8.0    # $0.08/GB
         assert costs['vol-io1'] == 12.5   # $0.125/GB

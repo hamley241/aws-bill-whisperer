@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p009_cross_az_transfer import CrossAZTransferPattern
-from patterns.base import Severity
+from patterns.base import RiskTier
 
 
 class TestCrossAZTransferPattern:
@@ -73,7 +73,7 @@ class TestCrossAZTransferPattern:
         assert findings[0].resource_id == 'prod-db'
         assert findings[0].resource_type == 'RDS Multi-AZ Instance'
         assert findings[0].metadata['multi_az'] is True
-        assert 'Cross-AZ replication' in findings[0].recommendation
+        assert 'Cross-AZ replication' in findings[0].summary
 
     def test_skips_single_az_rds(self):
         """
@@ -326,7 +326,7 @@ class TestCrossAZTransferPattern:
         """
         GIVEN: A resource with >$100/month cross-AZ cost
         WHEN: The pattern scans
-        THEN: Finding has HIGH severity
+        THEN: Finding has HIGH risk_tier
         """
         # GIVEN
         mock_session = MagicMock()
@@ -376,8 +376,8 @@ class TestCrossAZTransferPattern:
 
         # THEN
         assert len(findings) == 1
-        assert findings[0].severity == Severity.HIGH
-        assert findings[0].monthly_cost > 100
+        assert findings[0].risk_tier == RiskTier.HIGH
+        assert findings[0].monthly_impact_usd > 100
 
     def test_skips_low_traffic_resources(self):
         """

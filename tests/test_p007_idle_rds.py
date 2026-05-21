@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p007_idle_rds import IdleRDSPattern
-from patterns.base import Severity
+from patterns.base import RiskTier
 
 
 class TestIdleRDSPattern:
@@ -279,7 +279,7 @@ class TestIdleRDSPattern:
         """
         GIVEN: An idle RDS instance costing >$200/month
         WHEN: The pattern scans
-        THEN: The finding has HIGH severity
+        THEN: The finding has HIGH risk_tier
         """
         # GIVEN
         mock_session = MagicMock()
@@ -320,4 +320,4 @@ class TestIdleRDSPattern:
         
         # THEN
         assert len(findings) == 1
-        assert findings[0].severity in [Severity.HIGH, Severity.CRITICAL]
+        assert findings[0].risk_tier in [RiskTier.HIGH, RiskTier.HIGH]

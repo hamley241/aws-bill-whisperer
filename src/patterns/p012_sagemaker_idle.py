@@ -13,7 +13,7 @@ Common waste patterns:
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class SageMakerIdlePattern(BasePattern):
@@ -152,28 +152,29 @@ class SageMakerIdlePattern(BasePattern):
                     
                     if daily_avg < self.MIN_INVOCATIONS_PER_DAY:
                         # Calculate monthly cost
-                        monthly_cost = self._calculate_endpoint_cost(variants)
+                        monthly_impact_usd= self._calculate_endpoint_cost(variants)
                         
-                        # Determine severity based on cost
-                        if monthly_cost > 500:
-                            severity = Severity.CRITICAL
-                        elif monthly_cost > 100:
-                            severity = Severity.HIGH
+                        # Determine risk_tier based on cost
+                        if monthly_impact_usd > 500:
+                            risk_tier= RiskTier.HIGH
+                        elif monthly_impact_usd > 100:
+                            risk_tier= RiskTier.HIGH
                         else:
-                            severity = Severity.MEDIUM
+                            risk_tier= RiskTier.MEDIUM
                         
                         instance_types = [v.get("InstanceType", "unknown") for v in variants]
                         instance_counts = [v.get("InitialInstanceCount", 1) for v in variants]
                         
                         finding = Finding(
+                            pattern_id=self.PATTERN_ID,
                             resource_id=endpoint_name,
                             resource_type="SageMaker Endpoint",
                             region=region,
-                            monthly_cost=monthly_cost,
-                            recommendation=f"Endpoint has {invocation_count} total invocations in {self.LOOKBACK_DAYS} days "
+                            monthly_impact_usd=monthly_impact_usd,
+                            summary=f"Endpoint has {invocation_count} total invocations in {self.LOOKBACK_DAYS} days "
                                           f"(avg {daily_avg:.1f}/day). Consider deleting if not needed. "
                                           f"Instances: {instance_types}",
-                            severity=severity,
+                            risk_tier=risk_tier,
                             safe_to_fix=False,  # Deleting endpoints should be manual
                             fix_command=f"aws sagemaker delete-endpoint --endpoint-name {endpoint_name} --region {region}",
                             metadata={
@@ -225,25 +226,26 @@ class SageMakerIdlePattern(BasePattern):
                     # Flag if idle for more than 7 days
                     if idle_days >= self.LOOKBACK_DAYS:
                         hourly_cost = self.NOTEBOOK_HOURLY_COSTS.get(instance_type, 0.50)
-                        monthly_cost = hourly_cost * 24 * 30
+                        monthly_impact_usd= hourly_cost * 24 * 30
                         
-                        # Determine severity
-                        if monthly_cost > 500:
-                            severity = Severity.CRITICAL
-                        elif monthly_cost > 100:
-                            severity = Severity.HIGH
+                        # Determine risk_tier
+                        if monthly_impact_usd > 500:
+                            risk_tier= RiskTier.HIGH
+                        elif monthly_impact_usd > 100:
+                            risk_tier= RiskTier.HIGH
                         else:
-                            severity = Severity.MEDIUM
+                            risk_tier= RiskTier.MEDIUM
                         
                         finding = Finding(
+                            pattern_id=self.PATTERN_ID,
                             resource_id=notebook_name,
                             resource_type="SageMaker Notebook Instance",
                             region=region,
-                            monthly_cost=monthly_cost,
-                            recommendation=f"Notebook instance has been idle for {idle_days} days. "
-                                          f"Consider stopping (to save ~${monthly_cost:.0f}/mo) or deleting. "
+                            monthly_impact_usd=monthly_impact_usd,
+                            summary=f"Notebook instance has been idle for {idle_days} days. "
+                                          f"Consider stopping (to save ~${monthly_impact_usd:.0f}/mo) or deleting. "
                                           f"Instance type: {instance_type}",
-                            severity=severity,
+                            risk_tier=risk_tier,
                             safe_to_fix=False,
                             fix_command=f"aws sagemaker stop-notebook-instance --notebook-instance-name {notebook_name} --region {region}",
                             metadata={

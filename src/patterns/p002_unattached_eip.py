@@ -4,7 +4,7 @@ Detects EIPs not attached to any instance or ENI
 """
 
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class UnattachedEIPPattern(BasePattern):
@@ -33,12 +33,13 @@ class UnattachedEIPPattern(BasePattern):
                         public_ip = addr.get('PublicIp', 'N/A')
 
                         finding = Finding(
+                            pattern_id=self.PATTERN_ID,
                             resource_id=allocation_id,
                             resource_type="Elastic IP",
                             region=region,
-                            monthly_cost=self.MONTHLY_COST,
-                            recommendation=f"Release unattached EIP {public_ip}",
-                            severity=Severity.LOW,
+                            monthly_impact_usd=self.MONTHLY_COST,
+                            summary=f"Release unattached EIP {public_ip}",
+                            risk_tier=RiskTier.LOW,
                             safe_to_fix=True,  # Generally safe, but IP will be lost
                             fix_command=f"aws ec2 release-address --allocation-id {allocation_id} --region {region}",
                             metadata={

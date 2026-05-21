@@ -1,15 +1,22 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
+Description: AWS Bill Whisperer — in-account cost scanning + Slack interface.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    MemorySize: 512
+    Timeout: 30
 
 Resources:
+
+  # Existing scheduled / webhook-only analyzer (legacy SLACK_WEBHOOK path).
   AWSBillWhispererFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/
-      Handler: analyzer.handler.lambda_handler
-      Runtime: python3.12
+      CodeUri: ./
+      Handler: src/analyzer/handler.lambda_handler
       MemorySize: 256
-      Timeout: 30
       Policies:
         - Version: "2012-10-17"
           Statement:
@@ -21,26 +28,107 @@ Resources:
               Resource: "*"
       Environment:
         Variables:
-          LLM_PROVIDER: !Ref LlmProvider
-          LLM_MODEL: !Ref LlmModel
+          WHISPER_LLM_BACKEND: !Ref LlmBackend
+          WHISPER_LLM_MODEL: !Ref LlmModel
           SLACK_WEBHOOK: !Ref SlackWebhook
-          ANALYSIS_DAYS: !Ref AnalysisDays
+          WHISPER_ANALYSIS_DAYS: !Ref AnalysisDays
+
+  # New: Slack app webhook (slash commands, events, interactive components).
+  WhisperSlackFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./
+      Handler: slack/lambda_handler.handler
+      MemorySize: 1024
+      Timeout: 30
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            # Required scopes for the in-account pattern scan + LLM.
+            - Effect: Allow
+              Action:
+                - ce:GetCostAndUsage
+                - ec2:DescribeVolumes
+                - ec2:DescribeAddresses
+                - ec2:DescribeInstances
+                - ec2:DescribeSnapshots
+                - ec2:DescribeNatGateways
+                - ec2:DescribeRegions
+                - rds:DescribeDBInstances
+                - s3:ListAllMyBuckets
+                - s3:GetBucketLifecycleConfiguration
+                - cloudwatch:GetMetricStatistics
+                - cloudwatch:ListMetrics
+                - logs:DescribeLogGroups
+                - elasticloadbalancing:DescribeLoadBalancers
+                - elasticloadbalancing:DescribeTargetGroups
+                - lambda:ListFunctions
+                - lambda:GetFunction
+                - bedrock:InvokeModel
+                - sagemaker:ListEndpoints
+                - sagemaker:ListNotebookInstances
+                - elasticache:DescribeCacheClusters
+                - ecs:ListClusters
+                - ecs:ListServices
+                - ecs:DescribeServices
+                - apigateway:GET
+                - dynamodb:ListTables
+                - dynamodb:DescribeTable
+                - redshift:DescribeClusters
+                - elasticmapreduce:ListClusters
+                - secretsmanager:ListSecrets
+              Resource: "*"
+      Environment:
+        Variables:
+          # Set after Slack app creation. See docs/slack-quickstart.md.
+          SLACK_BOT_TOKEN: !Ref SlackBotToken
+          SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
+          WHISPER_LLM_BACKEND: !Ref LlmBackend
+          WHISPER_LLM_MODEL: !Ref LlmModel
+          # Prompt log goes to /tmp on Lambda (ephemeral); for production
+          # auditing, ship it to CloudWatch or S3 via your own subscription.
+          WHISPER_PROMPT_LOG_PATH: /tmp/whisper-prompts.log
+      Events:
+        SlackEvents:
+          Type: Api
+          Properties:
+            Path: /slack/events
+            Method: POST
 
 Parameters:
-  LlmProvider:
+  LlmBackend:
     Type: String
-    Default: "bedrock"
+    Default: bedrock
     AllowedValues:
       - bedrock
       - openai
+      - anthropic
 
   LlmModel:
     Type: String
     Default: "anthropic.claude-sonnet-4-6:0"
 
+  SlackBotToken:
+    Type: String
+    NoEcho: true
+    Description: Bot OAuth token (xoxb-...) for your Slack app.
+
+  SlackSigningSecret:
+    Type: String
+    NoEcho: true
+    Description: Signing secret for your Slack app.
+
   SlackWebhook:
     Type: String
+    Default: ""
+    Description: (Legacy) Incoming webhook URL for the scheduled analyzer.
 
   AnalysisDays:
     Type: Number
     Default: 30
+
+Outputs:
+  WhisperSlackEndpoint:
+    Description: Paste this into your Slack app's slash command, event,
+      and interactivity request URLs.
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/slack/events"

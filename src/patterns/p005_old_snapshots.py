@@ -5,7 +5,7 @@ Detects EBS snapshots older than a threshold (default 90 days) that may no longe
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class OldSnapshotsPattern(BasePattern):
@@ -60,35 +60,36 @@ class OldSnapshotsPattern(BasePattern):
                     age_days = (datetime.now(timezone.utc) - start_time).days
 
                     # Calculate monthly cost
-                    monthly_cost = volume_size * self.SNAPSHOT_COST_PER_GB
+                    monthly_impact_usd= volume_size * self.SNAPSHOT_COST_PER_GB
 
                     # Check if attached to an AMI
                     attached_to_ami = snapshot_id in ami_snapshot_ids
 
-                    # Determine severity
+                    # Determine risk_tier
                     if age_days > 365 and not attached_to_ami:
-                        severity = Severity.HIGH
+                        risk_tier= RiskTier.HIGH
                     elif age_days > 180 and not attached_to_ami:
-                        severity = Severity.MEDIUM
+                        risk_tier= RiskTier.MEDIUM
                     else:
-                        severity = Severity.LOW
+                        risk_tier= RiskTier.LOW
 
                     # Safe to delete if not attached to AMI and older than threshold
                     safe_to_fix = not attached_to_ami and age_days > self.threshold_days
 
-                    # Build recommendation
+                    # Build summary
                     if attached_to_ami:
-                        recommendation = f"Review old snapshot used by AMI (age: {age_days}d, {volume_size}GB)"
+                        summary= f"Review old snapshot used by AMI (age: {age_days}d, {volume_size}GB)"
                     else:
-                        recommendation = f"Delete unused old snapshot (age: {age_days}d, {volume_size}GB)"
+                        summary= f"Delete unused old snapshot (age: {age_days}d, {volume_size}GB)"
 
                     finding = Finding(
+                        pattern_id=self.PATTERN_ID,
                         resource_id=snapshot_id,
                         resource_type="EBS Snapshot",
                         region=region,
-                        monthly_cost=monthly_cost,
-                        recommendation=recommendation,
-                        severity=severity,
+                        monthly_impact_usd=monthly_impact_usd,
+                        summary=summary,
+                        risk_tier=risk_tier,
                         safe_to_fix=safe_to_fix,
                         fix_command=f"aws ec2 delete-snapshot --snapshot-id {snapshot_id} --region {region}" if safe_to_fix else None,
                         metadata={

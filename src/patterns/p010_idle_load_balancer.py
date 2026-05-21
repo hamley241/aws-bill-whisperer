@@ -5,7 +5,7 @@ Detects ELBs, ALBs, and NLBs with no targets or zero traffic.
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class IdleLoadBalancerPattern(BasePattern):
@@ -65,11 +65,11 @@ class IdleLoadBalancerPattern(BasePattern):
 
                 # Calculate monthly cost
                 if lb_type == 'application':
-                    monthly_cost = self.ALB_HOURLY_COST * 24 * 30
+                    monthly_impact_usd= self.ALB_HOURLY_COST * 24 * 30
                     metric_namespace = 'AWS/ApplicationELB'
                     request_metric = 'RequestCount'
                 else:  # network
-                    monthly_cost = self.NLB_HOURLY_COST * 24 * 30
+                    monthly_impact_usd= self.NLB_HOURLY_COST * 24 * 30
                     metric_namespace = 'AWS/NetworkELB'
                     request_metric = 'ProcessedBytes'
 
@@ -120,31 +120,32 @@ class IdleLoadBalancerPattern(BasePattern):
                 # Calculate age
                 age_days = (datetime.now(timezone.utc) - created_time).days
 
-                # Determine severity
+                # Determine risk_tier
                 if not has_targets and age_days > 30:
-                    severity = Severity.HIGH
+                    risk_tier= RiskTier.HIGH
                 elif request_count == 0 and age_days > 14:
-                    severity = Severity.HIGH
+                    risk_tier= RiskTier.HIGH
                 elif not has_targets or request_count == 0:
-                    severity = Severity.MEDIUM
+                    risk_tier= RiskTier.MEDIUM
                 else:
-                    severity = Severity.LOW
+                    risk_tier= RiskTier.LOW
 
                 lb_type_display = "ALB" if lb_type == 'application' else "NLB"
-                recommendation = (
+                summary= (
                     f"Idle {lb_type_display}: {', '.join(idle_reason)}. "
                     f"Age: {age_days} days. "
-                    f"Monthly cost: ${monthly_cost:.2f}. "
+                    f"Monthly cost: ${monthly_impact_usd:.2f}. "
                     "Consider deleting if no longer needed."
                 )
 
                 finding = Finding(
+                    pattern_id=self.PATTERN_ID,
                     resource_id=lb_name,
                     resource_type=f"{lb_type_display} Load Balancer",
                     region=region,
-                    monthly_cost=monthly_cost,
-                    recommendation=recommendation,
-                    severity=severity,
+                    monthly_impact_usd=monthly_impact_usd,
+                    summary=summary,
+                    risk_tier=risk_tier,
                     safe_to_fix=not has_targets and age_days > 7,
                     fix_command=f"aws elbv2 delete-load-balancer --load-balancer-arn {lb_arn} --region {region}",
                     metadata={
@@ -178,7 +179,7 @@ class IdleLoadBalancerPattern(BasePattern):
                 instances = lb.get('Instances', [])
 
                 # Calculate monthly cost
-                monthly_cost = self.CLB_HOURLY_COST * 24 * 30
+                monthly_impact_usd= self.CLB_HOURLY_COST * 24 * 30
 
                 # Check instance health
                 has_targets = len(instances) > 0
@@ -221,30 +222,31 @@ class IdleLoadBalancerPattern(BasePattern):
                 # Calculate age
                 age_days = (datetime.now(timezone.utc) - created_time).days
 
-                # Determine severity (CLBs are also deprecated, so higher urgency)
+                # Determine risk_tier (CLBs are also deprecated, so higher urgency)
                 if not has_targets and age_days > 30:
-                    severity = Severity.HIGH
+                    risk_tier= RiskTier.HIGH
                 elif request_count == 0 and age_days > 14:
-                    severity = Severity.HIGH
+                    risk_tier= RiskTier.HIGH
                 elif not has_targets or request_count == 0:
-                    severity = Severity.MEDIUM
+                    risk_tier= RiskTier.MEDIUM
                 else:
-                    severity = Severity.LOW
+                    risk_tier= RiskTier.LOW
 
-                recommendation = (
+                summary= (
                     f"Idle Classic ELB: {', '.join(idle_reason)}. "
                     f"Age: {age_days} days. "
-                    f"Monthly cost: ${monthly_cost:.2f}. "
+                    f"Monthly cost: ${monthly_impact_usd:.2f}. "
                     "Classic ELBs are deprecated - migrate to ALB/NLB or delete."
                 )
 
                 finding = Finding(
+                    pattern_id=self.PATTERN_ID,
                     resource_id=lb_name,
                     resource_type="Classic Load Balancer",
                     region=region,
-                    monthly_cost=monthly_cost,
-                    recommendation=recommendation,
-                    severity=severity,
+                    monthly_impact_usd=monthly_impact_usd,
+                    summary=summary,
+                    risk_tier=risk_tier,
                     safe_to_fix=not has_targets and age_days > 7,
                     fix_command=f"aws elb delete-load-balancer --load-balancer-name {lb_name} --region {region}",
                     metadata={

@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p008_s3_lifecycle import S3LifecyclePattern
-from patterns.base import Severity
+from patterns.base import RiskTier
 
 
 class TestS3LifecyclePattern:
@@ -168,8 +168,8 @@ class TestS3LifecyclePattern:
         # THEN
         assert len(findings) == 1
         assert findings[0].metadata['bucket_type'] == 'logs'
-        assert 'Glacier' in findings[0].recommendation
-        assert 'delete after 365 days' in findings[0].recommendation
+        assert 'Glacier' in findings[0].summary
+        assert 'delete after 365 days' in findings[0].summary
 
     def test_classifies_backup_bucket(self):
         """
@@ -208,7 +208,7 @@ class TestS3LifecyclePattern:
         # THEN
         assert len(findings) == 1
         assert findings[0].metadata['bucket_type'] == 'backup'
-        assert 'Glacier Instant Retrieval' in findings[0].recommendation
+        assert 'Glacier Instant Retrieval' in findings[0].summary
 
     def test_classifies_temp_bucket(self):
         """
@@ -247,13 +247,13 @@ class TestS3LifecyclePattern:
         # THEN
         assert len(findings) == 1
         assert findings[0].metadata['bucket_type'] == 'temporary'
-        assert 'expire objects' in findings[0].recommendation
+        assert 'expire objects' in findings[0].summary
 
     def test_high_severity_for_large_potential_savings(self):
         """
         GIVEN: A bucket with potential savings > $100/month
         WHEN: The pattern scans
-        THEN: Finding has HIGH severity
+        THEN: Finding has HIGH risk_tier
         """
         # GIVEN
         mock_session = MagicMock()
@@ -286,7 +286,7 @@ class TestS3LifecyclePattern:
 
         # THEN
         assert len(findings) == 1
-        assert findings[0].severity == Severity.HIGH
+        assert findings[0].risk_tier == RiskTier.HIGH
         assert findings[0].metadata['potential_savings'] > 100
 
     def test_handles_access_denied(self):

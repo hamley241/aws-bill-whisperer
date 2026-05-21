@@ -14,7 +14,7 @@ Best practice:
 """
 from datetime import datetime, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class CloudWatchLogsRetentionPattern(BasePattern):
@@ -89,16 +89,17 @@ class CloudWatchLogsRetentionPattern(BasePattern):
             # Rough estimate: if log group is old, assume linear growth
             potential_savings = current_monthly_cost * 0.5  # Conservative 50% estimate
             
-            severity = Severity.MEDIUM if current_monthly_cost < 50 else Severity.HIGH
+            risk_tier= RiskTier.MEDIUM if current_monthly_cost < 50 else RiskTier.HIGH
             
             finding = Finding(
+                pattern_id=self.PATTERN_ID,
                 resource_id=log_group_name,
                 resource_type="CloudWatch Log Group",
                 region=region,
-                monthly_cost=current_monthly_cost,
-                recommendation=f"No retention policy set. Logs stored forever ({stored_gb:.2f} GB). "
+                monthly_impact_usd=current_monthly_cost,
+                summary=f"No retention policy set. Logs stored forever ({stored_gb:.2f} GB). "
                               f"Set retention to 90 days or less to reduce costs by ~${potential_savings:.2f}/mo.",
-                severity=severity,
+                risk_tier=risk_tier,
                 safe_to_fix=False,  # Changing retention can delete logs
                 fix_command=f"aws logs put-retention-policy --log-group-name '{log_group_name}' --retention-in-days 90 --region {region}",
                 metadata={
@@ -115,16 +116,17 @@ class CloudWatchLogsRetentionPattern(BasePattern):
         elif retention_days > self.EXCESSIVE_RETENTION_DAYS and stored_gb > 1:
             potential_savings = current_monthly_cost * (1 - self.EXCESSIVE_RETENTION_DAYS / retention_days)
             
-            severity = Severity.LOW if current_monthly_cost < 20 else Severity.MEDIUM
+            risk_tier= RiskTier.LOW if current_monthly_cost < 20 else RiskTier.MEDIUM
             
             finding = Finding(
+                pattern_id=self.PATTERN_ID,
                 resource_id=log_group_name,
                 resource_type="CloudWatch Log Group",
                 region=region,
-                monthly_cost=current_monthly_cost,
-                recommendation=f"Retention set to {retention_days} days ({stored_gb:.2f} GB stored). "
+                monthly_impact_usd=current_monthly_cost,
+                summary=f"Retention set to {retention_days} days ({stored_gb:.2f} GB stored). "
                               f"Consider reducing to 90 days to save ~${potential_savings:.2f}/mo.",
-                severity=severity,
+                risk_tier=risk_tier,
                 safe_to_fix=False,
                 fix_command=f"aws logs put-retention-policy --log-group-name '{log_group_name}' --retention-in-days 90 --region {region}",
                 metadata={
@@ -149,14 +151,15 @@ class CloudWatchLogsRetentionPattern(BasePattern):
                 # Only flag if savings are meaningful
                 if potential_savings > 2:  # At least $2/month savings
                     finding = Finding(
+                        pattern_id=self.PATTERN_ID,
                         resource_id=log_group_name,
                         resource_type="CloudWatch Log Group",
                         region=region,
-                        monthly_cost=potential_savings,  # Report potential savings as cost
-                        recommendation=f"Using STANDARD class ({stored_gb:.2f} GB). "
+                        monthly_impact_usd=potential_savings,  # Report potential savings as cost
+                        summary=f"Using STANDARD class ({stored_gb:.2f} GB). "
                                       f"Switch to Infrequent Access class to save ~${potential_savings:.2f}/mo. "
                                       f"Note: IA class cannot be changed after creation - must recreate log group.",
-                        severity=Severity.LOW,
+                        risk_tier=RiskTier.LOW,
                         safe_to_fix=False,  # Cannot change class directly
                         fix_command=None,  # No direct fix - requires recreating log group
                         metadata={

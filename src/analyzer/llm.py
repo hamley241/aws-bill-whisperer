@@ -1,56 +1,96 @@
-"""LLM abstraction for cost analysis using Bedrock or OpenAI."""
+"""
+Cost-analysis LLM entry point.
 
-import json
+This module is a thin wrapper now: it loads the canonical cost_analysis
+prompt template, builds the message list, and delegates to an LLMClient.
+All provider-specific code lives in src/llm/. All prompt text lives in
+src/prompts/.
+
+Callers can either pass a pre-built LLMClient or rely on the convenience
+path that constructs one from WhisperConfig.
+"""
+
+from __future__ import annotations
+
 import logging
-import os
+import sys
+from pathlib import Path
 
-import boto3
+# Allow `analyzer/` to import sibling `llm/`, `config`, `prompts/` when the
+# analyzer is run as part of the Lambda handler (which adds src/ to path).
+_SRC = Path(__file__).parent.parent
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
-from .prompts import ANALYSIS_PROMPT
+from llm import LLMClient, Message, make_llm_client  # noqa: E402
+from prompts import load_template  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 
-def analyze_costs(cost_data: dict, provider: str = "bedrock", model: str | None = None) -> str:
+def analyze_costs(
+    cost_data: dict,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    client: LLMClient | None = None,
+) -> str:
     """
-    Send cost data to LLM and get analysis back.
+    Send cost data to the configured LLM and return its analysis as markdown.
 
     Args:
-        cost_data: Dictionary containing AWS cost data from cost_explorer
-        provider: "bedrock" or "openai"
-        model: Optional model override
-
-    Returns:
-        Analysis text in markdown format
+        cost_data: Output of cost_explorer.get_full_analysis(), with
+            optional 'waste_findings' from the pattern scan.
+        provider: Override the configured llm_backend (legacy).
+        model: Override the model ID.
+        client: Inject a pre-built LLMClient (used by tests).
     """
-    # Format cost data as readable text for the LLM
     cost_text = _format_cost_data_for_llm(cost_data)
-    full_prompt = ANALYSIS_PROMPT + "\n\n" + cost_text
+    template = load_template("cost_analysis")
+    prompt = template.text + "\n\n" + cost_text
 
-    if provider == "bedrock":
-        return _analyze_bedrock(full_prompt, model)
-    elif provider == "openai":
-        return _analyze_openai(full_prompt, model)
-    else:
-        raise ValueError(f"Unknown LLM provider: {provider}")
+    if client is None:
+        client = _client_from_args(provider=provider, model=model)
+
+    response = client.complete(
+        [Message(role="user", content=prompt)],
+        model=model,
+    )
+    return response.text
+
+
+def _client_from_args(*, provider: str | None, model: str | None) -> LLMClient:
+    """Build an LLMClient from CLI/env args, going through WhisperConfig.
+
+    Legacy callers pass provider='bedrock'|'openai'; that maps onto
+    llm_backend in the config layer. CLI overrides win per principle 9.
+    """
+    from config import load_config
+
+    overrides: dict[str, object] = {}
+    if provider is not None:
+        overrides["llm_backend"] = provider
+    if model is not None:
+        overrides["llm_model"] = model
+
+    cfg = load_config(cli_overrides=overrides)
+    return make_llm_client(cfg, prompt_template="cost_analysis")
 
 
 def _format_cost_data_for_llm(cost_data: dict) -> str:
-    """Convert structured cost data to readable text for LLM."""
-    lines = []
+    """Convert structured cost data to readable text for the LLM."""
+    lines: list[str] = []
 
-    # Current period summary
     if "usage" in cost_data:
         usage = cost_data["usage"]
         lines.append(f"## Current Period: {usage['period']['start']} to {usage['period']['end']}")
         lines.append(f"**Total Cost: ${usage['total']:,.2f}**\n")
 
         lines.append("### Costs by Service:")
-        for svc in usage.get("services", [])[:15]:  # Top 15
+        for svc in usage.get("services", [])[:15]:
             lines.append(f"- {svc['name']}: ${svc['cost']:,.2f} ({svc['percent']}%)")
         lines.append("")
 
-    # Comparison to previous period
     if "comparison" in cost_data:
         comp = cost_data["comparison"]
         direction = "increased" if comp["change"] > 0 else "decreased"
@@ -70,7 +110,6 @@ def _format_cost_data_for_llm(cost_data: dict) -> str:
                 lines.append(f"- {svc['name']}: {prev} → {curr} ({pct})")
             lines.append("")
 
-    # Regional breakdown
     if "regions" in cost_data:
         regions = cost_data["regions"]
         lines.append("### Costs by Region:")
@@ -78,7 +117,6 @@ def _format_cost_data_for_llm(cost_data: dict) -> str:
             lines.append(f"- {region['name']}: ${region['cost']:,.2f} ({region['percent']}%)")
         lines.append("")
 
-    # Daily trend (summarized)
     if "daily" in cost_data:
         daily = cost_data["daily"]
         if daily:
@@ -91,74 +129,3 @@ def _format_cost_data_for_llm(cost_data: dict) -> str:
             lines.append(f"- Lowest day: {min_day['date']} (${min_day['cost']:,.2f})")
 
     return "\n".join(lines)
-
-
-def _analyze_bedrock(prompt: str, model: str | None = None) -> str:
-    """Call AWS Bedrock with Claude."""
-    model_id = model or os.environ.get(
-        "LLM_MODEL",
-        "anthropic.claude-sonnet-4-6:0"
-    )
-
-    client = boto3.client('bedrock-runtime')
-
-    body = json.dumps({
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 4096,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    })
-
-    try:
-        response = client.invoke_model(
-            modelId=model_id,
-            contentType="application/json",
-            accept="application/json",
-            body=body
-        )
-
-        response_body = json.loads(response['body'].read())
-        return response_body['content'][0]['text']
-
-    except client.exceptions.AccessDeniedException:
-        logger.error("Access denied to Bedrock. Check bedrock:InvokeModel permission.")
-        raise
-    except Exception as e:
-        logger.error(f"Bedrock invocation failed: {e}")
-        raise
-
-
-def _analyze_openai(prompt: str, model: str | None = None) -> str:
-    """Call OpenAI API."""
-    try:
-        import openai
-    except ImportError as e:
-        raise ImportError(
-            "openai package required for OpenAI provider. Run: pip install openai"
-        ) from e
-
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY environment variable required for OpenAI provider")
-
-    model_id = model or os.environ.get("OPENAI_MODEL", "gpt-4o")
-    client = openai.OpenAI(api_key=api_key)
-
-    try:
-        response = client.chat.completions.create(
-            model=model_id,
-            messages=[
-                {"role": "system", "content": "You are an expert AWS cost analyst."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=4096
-        )
-        return response.choices[0].message.content
-
-    except Exception as e:
-        logger.error(f"OpenAI API call failed: {e}")
-        raise

@@ -5,7 +5,7 @@ Detects RDS instances with low connections and CPU utilization that may be overs
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class IdleRDSPattern(BasePattern):
@@ -96,15 +96,15 @@ class IdleRDSPattern(BasePattern):
                     if multi_az:
                         hourly_cost *= 2
 
-                    monthly_cost = hourly_cost * 24 * 30
+                    monthly_impact_usd= hourly_cost * 24 * 30
 
-                    # Determine severity
-                    if monthly_cost > 200 and avg_cpu < 1.0:
-                        severity = Severity.HIGH
-                    elif monthly_cost > 50 and avg_cpu < 2.0:
-                        severity = Severity.MEDIUM
+                    # Determine risk_tier
+                    if monthly_impact_usd > 200 and avg_cpu < 1.0:
+                        risk_tier= RiskTier.HIGH
+                    elif monthly_impact_usd > 50 and avg_cpu < 2.0:
+                        risk_tier= RiskTier.MEDIUM
                     else:
-                        severity = Severity.LOW
+                        risk_tier= RiskTier.LOW
 
                     # Age in days
                     age_days = (datetime.now(timezone.utc) - create_time).days
@@ -123,25 +123,26 @@ class IdleRDSPattern(BasePattern):
                         else:
                             recommendations.append("Review if instance is still needed")
 
-                    if avg_cpu < 2.0 and monthly_cost > 50:
+                    if avg_cpu < 2.0 and monthly_impact_usd > 50:
                         # Suggest smaller instance type
                         smaller_class = self._suggest_smaller_instance_class(db_instance_class)
                         if smaller_class:
                             recommendations.append(f"Consider downsizing to {smaller_class}")
 
                     recommendations.append(f"CPU: {avg_cpu:.1f}%, Connections: {avg_connections:.1f}")
-                    recommendation = "; ".join(recommendations)
+                    summary= "; ".join(recommendations)
 
                     # Safe to stop if dev/test and very low usage
                     safe_to_fix = (is_dev_test and avg_cpu < 1.0 and avg_connections < 0.1)
 
                     finding = Finding(
+                        pattern_id=self.PATTERN_ID,
                         resource_id=db_instance_id,
                         resource_type="RDS Instance",
                         region=region,
-                        monthly_cost=monthly_cost,
-                        recommendation=recommendation,
-                        severity=severity,
+                        monthly_impact_usd=monthly_impact_usd,
+                        summary=summary,
+                        risk_tier=risk_tier,
                         safe_to_fix=safe_to_fix,
                         fix_command=f"aws rds stop-db-instance --db-instance-identifier {db_instance_id} --region {region}" if safe_to_fix else None,
                         metadata={

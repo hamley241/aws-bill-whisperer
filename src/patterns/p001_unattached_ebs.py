@@ -5,7 +5,7 @@ Detects EBS volumes in 'available' state (not attached to any instance)
 
 from datetime import datetime, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class UnattachedEBSPattern(BasePattern):
@@ -50,7 +50,7 @@ class UnattachedEBSPattern(BasePattern):
 
                     # Calculate monthly cost
                     price_per_gb = self.PRICE_PER_GB.get(vol_type, 0.10)
-                    monthly_cost = size_gb * price_per_gb
+                    monthly_impact_usd= size_gb * price_per_gb
 
                     # Check if snapshot exists (safety check)
                     snapshots = ec2.describe_snapshots(
@@ -59,21 +59,22 @@ class UnattachedEBSPattern(BasePattern):
                     )['Snapshots']
                     has_snapshot = len(snapshots) > 0
 
-                    # Determine severity
-                    if age_days > 30 and monthly_cost > 50:
-                        severity = Severity.HIGH
+                    # Determine risk_tier
+                    if age_days > 30 and monthly_impact_usd > 50:
+                        risk_tier= RiskTier.HIGH
                     elif age_days > 7:
-                        severity = Severity.MEDIUM
+                        risk_tier= RiskTier.MEDIUM
                     else:
-                        severity = Severity.LOW
+                        risk_tier= RiskTier.LOW
 
                     finding = Finding(
+                        pattern_id=self.PATTERN_ID,
                         resource_id=volume_id,
                         resource_type="EBS Volume",
                         region=region,
-                        monthly_cost=monthly_cost,
-                        recommendation=f"Delete unattached volume (age: {age_days}d, {size_gb}GB {vol_type})",
-                        severity=severity,
+                        monthly_impact_usd=monthly_impact_usd,
+                        summary=f"Delete unattached volume (age: {age_days}d, {size_gb}GB {vol_type})",
+                        risk_tier=risk_tier,
                         safe_to_fix=has_snapshot and age_days > 7,
                         fix_command=f"aws ec2 delete-volume --volume-id {volume_id} --region {region}",
                         metadata={

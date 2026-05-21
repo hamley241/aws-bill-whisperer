@@ -7,7 +7,7 @@ after deployments or testing.
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class ECSFargateIdlePattern(BasePattern):
@@ -128,36 +128,37 @@ class ECSFargateIdlePattern(BasePattern):
             return
 
         # Calculate monthly cost
-        monthly_cost = self._calculate_monthly_cost(
+        monthly_impact_usd= self._calculate_monthly_cost(
             task_cpu, task_memory, running_count, launch_type
         )
 
         # Skip trivial costs
-        if monthly_cost < 5.0:
+        if monthly_impact_usd < 5.0:
             return
 
-        # Determine severity
-        if monthly_cost > 200:
-            severity = Severity.HIGH
-        elif monthly_cost > 50:
-            severity = Severity.MEDIUM
+        # Determine risk_tier
+        if monthly_impact_usd > 200:
+            risk_tier= RiskTier.HIGH
+        elif monthly_impact_usd > 50:
+            risk_tier= RiskTier.MEDIUM
         else:
-            severity = Severity.LOW
+            risk_tier= RiskTier.LOW
 
         reason_str = ", ".join(idle_reason) if idle_reason else "low activity"
-        recommendation = (
+        summary= (
             f"ECS service '{service_name}' appears idle ({reason_str}) for {self.LOOKBACK_DAYS} days. "
             f"Running {running_count} tasks ({launch_type}). "
             f"Consider scaling to 0 or deleting if no longer needed."
         )
 
         finding = Finding(
+            pattern_id=self.PATTERN_ID,
             resource_id=service_arn,
             resource_type="ECS Service",
             region=region,
-            monthly_cost=monthly_cost,
-            recommendation=recommendation,
-            severity=severity,
+            monthly_impact_usd=monthly_impact_usd,
+            summary=summary,
+            risk_tier=risk_tier,
             safe_to_fix=False,  # Scaling down services requires human judgment
             fix_command=f"aws ecs update-service --cluster {cluster_name} --service {service_name} --desired-count 0 --region {region}",
             metadata={

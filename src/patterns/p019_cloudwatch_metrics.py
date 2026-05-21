@@ -7,7 +7,7 @@ Each unique dimension combination is a separate metric, billed at $0.30/metric/m
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class CloudWatchMetricsPattern(BasePattern):
@@ -111,9 +111,9 @@ class CloudWatchMetricsPattern(BasePattern):
                 return  # Not enough metrics to be a problem
 
             # Calculate cost
-            monthly_cost = self._calculate_metric_cost(total_metric_count)
+            monthly_impact_usd= self._calculate_metric_cost(total_metric_count)
 
-            if monthly_cost < self.MIN_COST_TO_REPORT:
+            if monthly_impact_usd < self.MIN_COST_TO_REPORT:
                 return
 
             # Find the worst offenders (metrics with most unique dimension combinations)
@@ -123,37 +123,38 @@ class CloudWatchMetricsPattern(BasePattern):
                 reverse=True
             )[:5]
 
-            # Determine severity based on cardinality and cost
-            if total_metric_count > 10000 or monthly_cost > 1000:
-                severity = Severity.HIGH
-            elif total_metric_count > 1000 or monthly_cost > 100:
-                severity = Severity.MEDIUM
+            # Determine risk_tier based on cardinality and cost
+            if total_metric_count > 10000 or monthly_impact_usd > 1000:
+                risk_tier= RiskTier.HIGH
+            elif total_metric_count > 1000 or monthly_impact_usd > 100:
+                risk_tier= RiskTier.MEDIUM
             else:
-                severity = Severity.LOW
+                risk_tier= RiskTier.LOW
 
-            # Build recommendation
+            # Build summary
             high_dim_metrics = [
                 name for name, data in metrics_data.items()
                 if data['max_dimensions'] > self.DIMENSION_WARNING_THRESHOLD
             ]
 
-            recommendation = (
+            summary= (
                 f"Namespace '{namespace}' has {total_metric_count} unique metric streams. "
                 f"Top metrics: {', '.join(m[0] for m in worst_metrics[:3])}. "
             )
 
             if high_dim_metrics:
-                recommendation += f"High-dimension metrics ({len(high_dim_metrics)}): consider reducing dimensions."
+                summary += f"High-dimension metrics ({len(high_dim_metrics)}): consider reducing dimensions."
             else:
-                recommendation += "Consider using metric math or reducing dimension cardinality."
+                summary += "Consider using metric math or reducing dimension cardinality."
 
             finding = Finding(
+                pattern_id=self.PATTERN_ID,
                 resource_id=namespace,
                 resource_type="CloudWatch Custom Namespace",
                 region=region,
-                monthly_cost=monthly_cost,
-                recommendation=recommendation,
-                severity=severity,
+                monthly_impact_usd=monthly_impact_usd,
+                summary=summary,
+                risk_tier=risk_tier,
                 safe_to_fix=False,  # Requires application changes
                 fix_command=None,  # No simple fix command
                 metadata={

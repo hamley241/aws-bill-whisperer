@@ -7,7 +7,7 @@ Detects DynamoDB tables on suboptimal capacity mode:
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class DynamoDBCapacityPattern(BasePattern):
@@ -121,13 +121,14 @@ class DynamoDBCapacityPattern(BasePattern):
             return
 
         finding = Finding(
+            pattern_id=self.PATTERN_ID,
             resource_id=table_name,
             resource_type="DynamoDB Table",
             region=region,
-            monthly_cost=savings,
-            recommendation=f"Switch to Provisioned capacity (RCU: {provisioned_rcu}, WCU: {provisioned_wcu}). "
+            monthly_impact_usd=savings,
+            summary=f"Switch to Provisioned capacity (RCU: {provisioned_rcu}, WCU: {provisioned_wcu}). "
                           f"Traffic is steady (CV: {cv_rcu:.2f}/{cv_wcu:.2f}). Save ~{savings_pct:.0f}%",
-            severity=Severity.MEDIUM,
+            risk_tier=RiskTier.MEDIUM,
             safe_to_fix=False,  # Capacity mode changes need careful planning
             fix_command=f"aws dynamodb update-table --table-name {table_name} "
                        f"--billing-mode PROVISIONED "
@@ -195,24 +196,25 @@ class DynamoDBCapacityPattern(BasePattern):
         if savings < 5:
             return  # Not worth the change
 
-        # Determine severity based on utilization
+        # Determine risk_tier based on utilization
         avg_util = (rcu_util + wcu_util) / 2
         if avg_util < 0.05:
-            severity = Severity.HIGH
+            risk_tier= RiskTier.HIGH
         elif avg_util < 0.10:
-            severity = Severity.MEDIUM
+            risk_tier= RiskTier.MEDIUM
         else:
-            severity = Severity.LOW
+            risk_tier= RiskTier.LOW
 
         finding = Finding(
+            pattern_id=self.PATTERN_ID,
             resource_id=table_name,
             resource_type="DynamoDB Table",
             region=region,
-            monthly_cost=savings,
-            recommendation=f"Reduce provisioned capacity (RCU: {provisioned_rcu}→{optimal_rcu}, "
+            monthly_impact_usd=savings,
+            summary=f"Reduce provisioned capacity (RCU: {provisioned_rcu}→{optimal_rcu}, "
                           f"WCU: {provisioned_wcu}→{optimal_wcu}). "
                           f"Utilization: {rcu_util*100:.1f}%/{wcu_util*100:.1f}%",
-            severity=severity,
+            risk_tier=risk_tier,
             safe_to_fix=False,  # Capacity changes need testing
             fix_command=f"aws dynamodb update-table --table-name {table_name} "
                        f"--provisioned-throughput ReadCapacityUnits={optimal_rcu},WriteCapacityUnits={optimal_wcu} "

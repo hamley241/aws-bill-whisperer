@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p006_nat_gateway import NatGatewayOptimizationPattern
-from patterns.base import Severity
+from patterns.base import RiskTier
 
 
 class TestNatGatewayOptimizationPattern:
@@ -71,7 +71,7 @@ class TestNatGatewayOptimizationPattern:
         assert findings[0].resource_type == 'NAT Gateway'
         assert findings[0].safe_to_fix is False  # Manual intervention required
         assert findings[0].metadata['total_gb_transferred'] == 300.0
-        assert 'VPC endpoints' in findings[0].recommendation
+        assert 'VPC endpoints' in findings[0].summary
 
     def test_no_finding_when_transfer_below_threshold(self):
         """
@@ -121,7 +121,7 @@ class TestNatGatewayOptimizationPattern:
         """
         GIVEN: NAT Gateways with different data transfer volumes
         WHEN: The pattern scans
-        THEN: Higher transfer volumes get higher severity ratings
+        THEN: Higher transfer volumes get higher risk_tier ratings
         """
         # GIVEN
         mock_session = MagicMock()
@@ -167,14 +167,14 @@ class TestNatGatewayOptimizationPattern:
         
         # THEN
         assert len(findings) == 3
-        severities = {f.resource_id: f.severity for f in findings}
+        severities = {f.resource_id: f.risk_tier for f in findings}
         
         # 400GB total (200 each direction) = LOW (< 500GB)
-        assert severities['nat-medium'] == Severity.LOW
+        assert severities['nat-medium'] == RiskTier.LOW
         # 800GB total = HIGH (> 500GB)  
-        assert severities['nat-high'] == Severity.MEDIUM
+        assert severities['nat-high'] == RiskTier.MEDIUM
         # 1600GB total = HIGH (> 1000GB)
-        assert severities['nat-veryhigh'] == Severity.HIGH
+        assert severities['nat-veryhigh'] == RiskTier.HIGH
 
     def test_calculates_vpc_endpoint_savings(self):
         """
@@ -265,8 +265,8 @@ class TestNatGatewayOptimizationPattern:
         
         # THEN
         assert len(findings) == 1
-        assert 'NAT instance' in findings[0].recommendation
-        assert 'dev/test' in findings[0].recommendation
+        assert 'NAT instance' in findings[0].summary
+        assert 'dev/test' in findings[0].summary
 
     def test_calculates_total_monthly_cost(self):
         """
@@ -320,7 +320,7 @@ class TestNatGatewayOptimizationPattern:
         
         assert findings[0].metadata['monthly_base_cost'] == expected_base
         assert findings[0].metadata['monthly_transfer_cost'] == expected_transfer
-        assert findings[0].monthly_cost == expected_total
+        assert findings[0].monthly_impact_usd == expected_total
 
     def test_tracks_nat_gateway_age(self):
         """
@@ -427,9 +427,9 @@ class TestNatGatewayOptimizationPattern:
             resource_id='nat-test',
             resource_type='NAT Gateway',
             region='us-east-1',
-            monthly_cost=100.0,
-            recommendation='Test',
-            severity=Severity.MEDIUM,
+            monthly_impact_usd=100.0,
+            summary='Test',
+            risk_tier=RiskTier.MEDIUM,
             safe_to_fix=False,
             fix_command=None
         )

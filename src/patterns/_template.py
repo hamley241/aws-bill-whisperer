@@ -57,9 +57,9 @@ class TemplatePattern(BasePattern):
                 #             resource_id=item['Id'],
                 #             resource_type="Resource Type",
                 #             region=region,
-                #             monthly_cost=calculate_cost(item),
-                #             recommendation="What to do",
-                #             severity=Severity.MEDIUM,
+                #             monthly_impact_usd=calculate_cost(item),
+                #             summary="What to do",
+                #             risk_tier=RiskTier.MEDIUM,
                 #             safe_to_fix=True,
                 #             fix_command="aws ... command",
                 #             metadata={"key": "value"}

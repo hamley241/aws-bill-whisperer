@@ -15,7 +15,7 @@ Common waste patterns:
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, Severity
+from .base import BasePattern, Complexity, Finding, RiskTier
 
 
 class ElastiCacheIdlePattern(BasePattern):
@@ -129,28 +129,29 @@ class ElastiCacheIdlePattern(BasePattern):
                     if daily_avg < self.MIN_CONNECTIONS_PER_DAY:
                         # Calculate monthly cost
                         hourly_cost = self.HOURLY_COSTS.get(instance_type, 0.20)
-                        monthly_cost = hourly_cost * 24 * 30 * node_count
+                        monthly_impact_usd= hourly_cost * 24 * 30 * node_count
                         
-                        # Determine severity based on cost
-                        if monthly_cost > 300:
-                            severity = Severity.CRITICAL
-                        elif monthly_cost > 100:
-                            severity = Severity.HIGH
+                        # Determine risk_tier based on cost
+                        if monthly_impact_usd > 300:
+                            risk_tier= RiskTier.HIGH
+                        elif monthly_impact_usd > 100:
+                            risk_tier= RiskTier.HIGH
                         else:
-                            severity = Severity.MEDIUM
+                            risk_tier= RiskTier.MEDIUM
                         
                         multi_az = repl_group.get("MultiAZ", "disabled") == "enabled"
                         automatic_failover = repl_group.get("AutomaticFailover", "disabled")
                         
                         finding = Finding(
+                            pattern_id=self.PATTERN_ID,
                             resource_id=repl_group_id,
                             resource_type="ElastiCache Redis Cluster",
                             region=region,
-                            monthly_cost=monthly_cost,
-                            recommendation=f"Redis cluster has {int(total_connections)} connections in {self.LOOKBACK_DAYS} days "
+                            monthly_impact_usd=monthly_impact_usd,
+                            summary=f"Redis cluster has {int(total_connections)} connections in {self.LOOKBACK_DAYS} days "
                                           f"(avg {daily_avg:.1f}/day). Consider deleting if not needed. "
                                           f"Nodes: {node_count} x {instance_type}",
-                            severity=severity,
+                            risk_tier=risk_tier,
                             safe_to_fix=False,  # Deleting clusters should be manual
                             fix_command=f"aws elasticache delete-replication-group --replication-group-id {repl_group_id} --region {region}",
                             metadata={
@@ -202,25 +203,26 @@ class ElastiCacheIdlePattern(BasePattern):
                     if daily_avg < self.MIN_CONNECTIONS_PER_DAY:
                         # Calculate monthly cost
                         hourly_cost = self.HOURLY_COSTS.get(instance_type, 0.10)
-                        monthly_cost = hourly_cost * 24 * 30 * node_count
+                        monthly_impact_usd= hourly_cost * 24 * 30 * node_count
                         
-                        # Determine severity based on cost
-                        if monthly_cost > 200:
-                            severity = Severity.HIGH
-                        elif monthly_cost > 50:
-                            severity = Severity.MEDIUM
+                        # Determine risk_tier based on cost
+                        if monthly_impact_usd > 200:
+                            risk_tier= RiskTier.HIGH
+                        elif monthly_impact_usd > 50:
+                            risk_tier= RiskTier.MEDIUM
                         else:
-                            severity = Severity.LOW
+                            risk_tier= RiskTier.LOW
                         
                         finding = Finding(
+                            pattern_id=self.PATTERN_ID,
                             resource_id=cluster_id,
                             resource_type="ElastiCache Memcached Cluster",
                             region=region,
-                            monthly_cost=monthly_cost,
-                            recommendation=f"Memcached cluster has {int(total_connections)} connections in {self.LOOKBACK_DAYS} days "
+                            monthly_impact_usd=monthly_impact_usd,
+                            summary=f"Memcached cluster has {int(total_connections)} connections in {self.LOOKBACK_DAYS} days "
                                           f"(avg {daily_avg:.1f}/day). Consider deleting if not needed. "
                                           f"Nodes: {node_count} x {instance_type}",
-                            severity=severity,
+                            risk_tier=risk_tier,
                             safe_to_fix=False,
                             fix_command=f"aws elasticache delete-cache-cluster --cache-cluster-id {cluster_id} --region {region}",
                             metadata={
