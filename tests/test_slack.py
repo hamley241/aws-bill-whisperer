@@ -25,6 +25,7 @@ from slack.handlers.scan import (
     USAGE_TEXT,
     register,
     set_background_runner,
+    set_explainer,
     set_scan_runner,
 )
 
@@ -77,9 +78,9 @@ class _StubApp:
 @pytest.fixture(autouse=True)
 def _isolate_handler_globals():
     """Reset module-level injection points after every test."""
-    from slack.handlers.scan import _scan_runner as orig_runner  # noqa: F401
+    # Default the explainer to a no-op so handler tests don't hit boto3/LLMs.
+    set_explainer(lambda findings, **kwargs: None)
     yield
-    # Default the background runner back to inline to keep other tests sane.
     set_background_runner(lambda fn: fn())
 
 
@@ -183,6 +184,34 @@ class TestScanCommand:
     def test_scan_text_is_case_insensitive(self):
         _, respond, _ = self._invoke("SCAN")
         assert respond.call_args_list[0].kwargs["text"] == SCAN_STARTED_TEXT
+
+    def test_explainer_called_between_scan_and_post(self):
+        explain_calls: list = []
+
+        def fake_explain(findings, **kwargs):
+            # Stamp every finding so the presenter can render it.
+            for f in findings:
+                f.explanation = "Test explanation."
+            explain_calls.append(len(findings))
+
+        set_explainer(fake_explain)
+        _, respond, _ = self._invoke("scan")
+        assert explain_calls == [1]  # sample result has 1 finding
+
+        blocks = respond.call_args_list[1].kwargs["blocks"]
+        import json
+        blob = json.dumps(blocks)
+        assert "Test explanation." in blob
+
+    def test_explainer_failure_does_not_block_post(self):
+        def boom(findings, **kwargs):
+            raise RuntimeError("LLM dead")
+
+        set_explainer(boom)
+        _, respond, _ = self._invoke("scan")
+        # The blocks were still posted even though the explainer failed.
+        assert respond.call_count == 2
+        assert "blocks" in respond.call_args_list[1].kwargs
 
     def test_logs_caller(self):
         _, _, logger = self._invoke("scan")
