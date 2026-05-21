@@ -30,6 +30,7 @@ requires-python = ">=3.10"
 dependencies = [
     "boto3>=1.34.0",
     "click>=8.0.0",
+    "slack-bolt>=1.18.0",
     "tomli>=2.0.0; python_version<'3.11'",
 ]
 
@@ -64,8 +65,8 @@ aws-bill-whisperer = "cli.analyze:main"
 whisper-config = "cli.doctor:main"
 
 [tool.setuptools]
-packages = ["src", "cli"]
-package-dir = {src = "src", cli = "cli"}
+packages = ["src", "cli", "slack"]
+package-dir = {src = "src", cli = "cli", slack = "slack"}
 
 [tool.ruff]
 line-length = 100
