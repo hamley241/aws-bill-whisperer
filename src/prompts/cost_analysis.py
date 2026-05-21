@@ -1,6 +1,12 @@
-SYSTEM_PROMPT = """You are an AWS cost analysis expert. Analyze the provided AWS billing data and explain cost changes in plain English. Be specific about which services changed and why. Provide actionable recommendations."""
+"""Cost analysis prompt — the main bill-explanation template."""
 
-ANALYSIS_PROMPT = """You are an expert AWS cost analyst helping a developer understand their cloud bill.
+from . import PromptTemplate
+
+
+TEMPLATE = PromptTemplate(
+    name="cost_analysis",
+    description="Plain-English bill explanation with waste-finding integration.",
+    text="""You are an expert AWS cost analyst helping a developer understand their cloud bill.
 
 Analyze the following AWS cost data and provide a clear, actionable summary.
 
@@ -25,7 +31,7 @@ List the top 5 services by spend with:
 ### 4. Detected Waste (from automated scans)
 If `waste_findings` is present in the data, summarize:
 - Group findings by pattern type (e.g., "Idle EC2", "Old Snapshots")
-- Highlight HIGH/CRITICAL severity items first
+- Highlight HIGH risk_tier items first
 - Total potential monthly savings from waste findings
 - Include specific resource IDs for actionable items
 
@@ -42,7 +48,7 @@ Provide 3-5 specific, actionable recommendations:
 
 ## Formatting:
 - Use markdown formatting
-- Use emojis sparingly for visual hierarchy (📊 💰 🔥 💡 ✅)
+- Use emojis sparingly for visual hierarchy
 - Be concise but thorough
 - Use bullet points, not long paragraphs
 
@@ -52,37 +58,5 @@ Provide 3-5 specific, actionable recommendations:
 - Don't be preachy about cost optimization
 
 Here is the cost data to analyze:
-"""
-
-ANOMALY_PROMPT = """Analyze this AWS cost data for anomalies.
-
-An anomaly is:
-- A sudden spike (>50% day-over-day increase)
-- An unusual service appearing in top costs
-- Costs in unexpected regions
-- Significant deviation from the trend
-
-For each anomaly found, explain:
-1. What the anomaly is
-2. Likely cause (if determinable)
-3. Recommended action
-
-Cost data:
-"""
-
-RECOMMENDATION_PROMPT = """Based on this AWS cost data, identify specific cost optimization opportunities.
-
-Focus on:
-1. Unused or idle resources (stopped instances still incurring costs, unattached EBS volumes)
-2. Right-sizing opportunities (overprovisioned instances)
-3. Reserved Instance / Savings Plan opportunities
-4. Storage optimization (S3 lifecycle policies, EBS snapshot cleanup)
-5. Data transfer costs (consider CloudFront, VPC endpoints)
-
-For each recommendation:
-- Be specific about what to do
-- Estimate the savings (monthly)
-- Rate the effort (easy/medium/hard)
-
-Cost data:
-"""
+""",
+)

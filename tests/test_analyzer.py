@@ -10,7 +10,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from analyzer import cost_explorer, formatter, prompts
+from analyzer import cost_explorer, formatter
+import prompts as prompt_registry
 
 
 @pytest.fixture
@@ -61,19 +62,31 @@ class TestFormatter:
         assert result["cost_data"]["usage"]["total"] == 1247.32
 
 
-class TestPrompts:
-    """Test cases for the prompts module."""
+class TestPromptRegistry:
+    """Templates live in src/prompts/ now (CLAUDE.md principle 5)."""
 
-    def test_system_prompt_exists(self):
-        """Test that system prompt is defined."""
-        assert hasattr(prompts, 'SYSTEM_PROMPT') or hasattr(prompts, 'get_system_prompt')
+    def test_cost_analysis_template_loads(self):
+        template = prompt_registry.load_template("cost_analysis")
+        assert template.name == "cost_analysis"
+        assert len(template.text) > 100
+        assert template.provider_neutral
 
-    def test_cost_analysis_prompt_content(self):
-        """Test that cost analysis prompt contains expected content."""
-        if hasattr(prompts, 'COST_ANALYSIS_PROMPT'):
-            prompt = prompts.COST_ANALYSIS_PROMPT
-            assert isinstance(prompt, str)
-            assert len(prompt) > 100
+    def test_anomaly_template_loads(self):
+        template = prompt_registry.load_template("anomaly")
+        assert template.name == "anomaly"
+        assert "anomaly" in template.text.lower()
+
+    def test_recommendations_template_loads(self):
+        template = prompt_registry.load_template("recommendations")
+        assert template.name == "recommendations"
+
+    def test_missing_template_raises(self):
+        with pytest.raises(KeyError):
+            prompt_registry.load_template("nope_never_existed")
+
+    def test_list_templates_includes_core_three(self):
+        names = set(prompt_registry.list_templates())
+        assert {"cost_analysis", "anomaly", "recommendations"}.issubset(names)
 
 
 class TestCostExplorer:
