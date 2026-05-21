@@ -18,7 +18,7 @@ import json
 import sys
 
 from patterns import discover_patterns
-from patterns.base import Finding
+from patterns.base import Finding, RemediationMode
 from presenters import JSONPresenter, ScanResult, TextPresenter
 
 
@@ -114,22 +114,16 @@ def cmd_fix(args):
         print(f"Error: Resource '{args.resource_id}' not found in pattern '{args.pattern}'", file=sys.stderr)
         sys.exit(1)
 
-    # Apply fix
-    try:
-        result = pattern.fix(target_finding, dry_run=args.dry_run)
-        if result:
-            if args.dry_run:
-                print(f"✅ Dry-run successful for {args.resource_id}")
-            else:
-                print(f"✅ Fixed {args.resource_id}")
-        else:
-            print(f"❌ Fix failed for {args.resource_id}", file=sys.stderr)
-            sys.exit(1)
-    except Exception as e:
-        print(f"❌ Error fixing {args.resource_id}: {e}", file=sys.stderr)
-        if args.verbose:
-            import traceback
-            traceback.print_exc()
+    mode = RemediationMode.DRY_RUN if args.dry_run else RemediationMode.API_CALL
+    result = pattern.remediate(target_finding, mode)
+    if result.success:
+        marker = "✅"
+        print(f"{marker} {mode.value}: {args.resource_id} — {result.message}")
+        if result.output and args.verbose:
+            print(result.output)
+    else:
+        print(f"❌ {mode.value} failed for {args.resource_id}: {result.message}",
+              file=sys.stderr)
         sys.exit(1)
 
 

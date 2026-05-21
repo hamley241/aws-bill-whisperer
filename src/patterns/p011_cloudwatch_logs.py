@@ -14,7 +14,7 @@ Best practice:
 """
 from datetime import datetime, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class CloudWatchLogsRetentionPattern(BasePattern):
@@ -23,6 +23,8 @@ class CloudWatchLogsRetentionPattern(BasePattern):
     DESCRIPTION = "Log groups with excessive retention (>90 days) or using wrong storage class"
     COMPLEXITY = Complexity.EASY
     SERVICES = ["logs", "cloudwatch"]
+    CATEGORY = Category.MONITORING
+    REQUIRED_IAM = ["logs:DescribeLogGroups", "ec2:DescribeRegions"]
 
     # Thresholds
     EXCESSIVE_RETENTION_DAYS = 90  # Days before we flag as excessive
@@ -174,27 +176,46 @@ class CloudWatchLogsRetentionPattern(BasePattern):
         
         return findings
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
-        """Apply fix for retention policy issues."""
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
+        if mode != RemediationMode.API_CALL:
+            return super().remediate(finding, mode)
         if not finding.safe_to_fix:
-            raise ValueError(
-                f"Cannot safely fix {finding.resource_id}. "
-                f"Changing retention may delete logs. Manual review required."
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=f"Cannot safely fix {finding.resource_id}. "
+                f"Changing retention may delete logs. Manual review required.",
             )
-        
-        if dry_run:
-            print(f"[DRY RUN] Would execute: {finding.fix_command}")
-            return True
-        
-        # Execute the fix
-        logs_client = self.session.client("logs", region_name=finding.region)
-        
         try:
-            logs_client.put_retention_policy(
-                logGroupName=finding.resource_id,
-                retentionInDays=90
+            """Apply fix for retention policy issues."""
+        
+        
+        
+            # Execute the fix
+            logs_client = self.session.client("logs", region_name=finding.region)
+        
+            try:
+                logs_client.put_retention_policy(
+                    logGroupName=finding.resource_id,
+                    retentionInDays=90
+                )
+            except Exception as e:
+                print(f"Error setting retention policy: {e}")
+                return False
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=True,
+                message="set retention policy to 90 days",
             )
-            return True
         except Exception as e:
-            print(f"Error setting retention policy: {e}")
-            return False
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=str(e),
+            )

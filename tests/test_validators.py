@@ -1,0 +1,338 @@
+"""
+Heavy tests for src/agent/validators.py — the safety boundary.
+
+CLAUDE.md's "LLM proposes; framework disposes" rule is enforced here.
+If a validator is wrong, the rest of the PR's safety story collapses,
+so we over-test on purpose.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from agent.modes import AvailableModesResolver
+from agent.schemas import DropReason
+from agent.validators import (
+    MONTHLY_IMPACT_TOLERANCE,
+    validate_step,
+    validate_steps,
+)
+from patterns.base import Finding, RemediationMode, RiskTier
+
+
+def _finding(**overrides) -> Finding:
+    defaults = dict(
+        resource_id="vol-abc",
+        resource_type="EBS Volume",
+        region="us-east-1",
+        monthly_impact_usd=42.5,
+        summary="delete unattached volume",
+        pattern_id="001",
+        risk_tier=RiskTier.HIGH,
+        confidence=0.9,
+        fix_command="aws ec2 delete-volume --volume-id vol-abc",
+        safe_to_fix=True,
+        evidence={"terraform_managed": True, "size_gb": 100, "age_days": 30},
+    )
+    defaults.update(overrides)
+    return Finding(**defaults)
+
+
+def _raw(**overrides) -> dict:
+    defaults = dict(
+        finding_id="placeholder",   # caller usually overrides with the real id
+        suggested_mode="dry_run",
+        monthly_impact_usd=42.5,
+        rationale="why",
+        order_rank=1,
+    )
+    defaults.update(overrides)
+    return defaults
+
+
+# ---------------------------------------------------------------------------
+# The 8 required test cases from the brief — explicit + named.
+# ---------------------------------------------------------------------------
+
+class TestRequiredCases:
+    def test_unknown_finding_id_dropped(self):
+        f = _finding()
+        kept, dropped = validate_steps(
+            [_raw(finding_id="ghost-id")], findings=[f],
+        )
+        assert kept == []
+        assert len(dropped) == 1
+        assert dropped[0].reason == DropReason.UNKNOWN_FINDING_ID.value
+        assert "ghost-id" in dropped[0].detail
+
+    def test_unsupported_mode_dropped(self):
+        # Make finding unsafe so api_call is NOT in the resolver's set.
+        f = _finding(safe_to_fix=False,
+                     evidence={"terraform_managed": False})
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id, suggested_mode="api_call")],
+            findings=[f],
+        )
+        assert kept == []
+        assert dropped[0].reason == DropReason.UNSUPPORTED_MODE.value
+        assert "api_call" in dropped[0].detail
+
+    def test_monthly_impact_mismatch_dropped(self):
+        f = _finding(monthly_impact_usd=42.50)
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id, monthly_impact_usd=99.99)],
+            findings=[f],
+        )
+        assert kept == []
+        assert dropped[0].reason == DropReason.MONTHLY_IMPACT_MISMATCH.value
+        assert "42.5" in dropped[0].detail
+        assert "99.99" in dropped[0].detail
+
+    def test_monthly_impact_missing_dropped(self):
+        f = _finding()
+        raw = _raw(finding_id=f.id)
+        del raw["monthly_impact_usd"]
+        kept, dropped = validate_steps([raw], findings=[f])
+        # missing key is caught by the schema-required-fields check, since
+        # monthly_impact_usd is in _REQUIRED_KEYS. The reason is SCHEMA_INVALID.
+        assert kept == []
+        assert dropped[0].reason == DropReason.SCHEMA_INVALID.value
+
+    def test_monthly_impact_present_but_null_dropped(self):
+        # Distinct from "missing": LLM emits the key but with null.
+        f = _finding()
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id, monthly_impact_usd=None)],
+            findings=[f],
+        )
+        assert kept == []
+        assert dropped[0].reason == DropReason.MONTHLY_IMPACT_MISSING.value
+
+    def test_missing_required_field_dropped(self):
+        f = _finding()
+        raw = _raw(finding_id=f.id)
+        del raw["order_rank"]
+        kept, dropped = validate_steps([raw], findings=[f])
+        assert kept == []
+        assert dropped[0].reason == DropReason.SCHEMA_INVALID.value
+        assert "order_rank" in dropped[0].detail
+
+    def test_all_steps_dropped_signals_validation_failed(self):
+        f = _finding()
+        kept, dropped = validate_steps(
+            [_raw(finding_id="ghost-1"), _raw(finding_id="ghost-2")],
+            findings=[f],
+        )
+        assert kept == []
+        assert len(dropped) == 2
+        # status is computed in the planner from `kept == []`; the
+        # validators themselves don't compute status. Test the planner
+        # status mapping in test_planner.
+
+    def test_valid_p001_pr_step_accepted(self):
+        f = _finding(safe_to_fix=True,
+                     evidence={"terraform_managed": True, "size_gb": 100})
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id, suggested_mode="pr")],
+            findings=[f],
+        )
+        assert dropped == []
+        assert len(kept) == 1
+        step = kept[0]
+        assert step.finding_id == f.id
+        assert step.pattern_id == "001"
+        assert step.suggested_mode == "pr"
+        assert step.monthly_impact_usd == 42.5  # canonical value used
+
+    def test_api_call_for_unsafe_finding_dropped(self):
+        # The fixture for the safety boundary that matters most.
+        f = _finding(safe_to_fix=False,
+                     evidence={"terraform_managed": True})
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id, suggested_mode="api_call")],
+            findings=[f],
+        )
+        assert kept == []
+        assert dropped[0].reason == DropReason.UNSUPPORTED_MODE.value
+
+
+# ---------------------------------------------------------------------------
+# Additional edge cases the brief said to add if I thought of any.
+# ---------------------------------------------------------------------------
+
+class TestEdgeCases:
+    def test_monthly_impact_at_tolerance_boundary_accepted(self):
+        f = _finding(monthly_impact_usd=42.50)
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id,
+                  monthly_impact_usd=42.50 + MONTHLY_IMPACT_TOLERANCE)],
+            findings=[f],
+        )
+        assert dropped == []
+        assert len(kept) == 1
+
+    def test_monthly_impact_just_past_tolerance_rejected(self):
+        f = _finding(monthly_impact_usd=42.50)
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id,
+                  monthly_impact_usd=42.50 + MONTHLY_IMPACT_TOLERANCE + 0.001)],
+            findings=[f],
+        )
+        assert kept == []
+        assert dropped[0].reason == DropReason.MONTHLY_IMPACT_MISMATCH.value
+
+    def test_canonical_dollar_value_overrides_emitted(self):
+        f = _finding(monthly_impact_usd=42.50)
+        kept, _ = validate_steps(
+            [_raw(finding_id=f.id, monthly_impact_usd=42.501)],  # within tol
+            findings=[f],
+        )
+        # We accept the emission, but the PlanStep carries the canonical value.
+        assert kept[0].monthly_impact_usd == 42.50
+
+    def test_string_dollar_value_coerced(self):
+        f = _finding(monthly_impact_usd=42.50)
+        kept, _ = validate_steps(
+            [_raw(finding_id=f.id, monthly_impact_usd="42.50")],
+            findings=[f],
+        )
+        assert len(kept) == 1
+
+    def test_non_numeric_dollar_value_dropped(self):
+        f = _finding()
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id, monthly_impact_usd="lots")],
+            findings=[f],
+        )
+        assert kept == []
+        assert dropped[0].reason == DropReason.MONTHLY_IMPACT_MISSING.value
+
+    def test_duplicate_finding_id_second_one_dropped(self):
+        f = _finding()
+        kept, dropped = validate_steps(
+            [
+                _raw(finding_id=f.id, order_rank=1),
+                _raw(finding_id=f.id, order_rank=2),
+            ],
+            findings=[f],
+        )
+        assert len(kept) == 1
+        assert kept[0].order_rank == 1
+        assert dropped[0].reason == DropReason.DUPLICATE_FINDING_ID.value
+
+    def test_non_string_finding_id_dropped(self):
+        f = _finding()
+        kept, dropped = validate_steps(
+            [_raw(finding_id=12345)],
+            findings=[f],
+        )
+        assert kept == []
+        assert dropped[0].reason == DropReason.SCHEMA_INVALID.value
+
+    def test_non_string_mode_dropped(self):
+        f = _finding()
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id, suggested_mode=["dry_run"])],
+            findings=[f],
+        )
+        assert kept == []
+        assert dropped[0].reason == DropReason.SCHEMA_INVALID.value
+
+    def test_string_order_rank_coerced(self):
+        f = _finding()
+        kept, _ = validate_steps(
+            [_raw(finding_id=f.id, order_rank="3")],
+            findings=[f],
+        )
+        assert kept[0].order_rank == 3
+
+    def test_non_int_order_rank_dropped(self):
+        f = _finding()
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id, order_rank="third")],
+            findings=[f],
+        )
+        assert kept == []
+        assert dropped[0].reason == DropReason.SCHEMA_INVALID.value
+
+    def test_raw_emissions_not_a_list(self):
+        f = _finding()
+        kept, dropped = validate_steps("steps", findings=[f])  # type: ignore[arg-type]
+        assert kept == []
+        assert dropped[0].reason == DropReason.SCHEMA_INVALID.value
+        assert "expected list" in dropped[0].detail
+
+    def test_individual_emission_not_a_dict(self):
+        f = _finding()
+        kept, dropped = validate_steps(["a string"], findings=[f])  # type: ignore[list-item]
+        assert kept == []
+        assert dropped[0].reason == DropReason.SCHEMA_INVALID.value
+
+    def test_universal_modes_always_offered(self):
+        # A pattern not in the resolver's map still allows dry_run / command.
+        f = _finding(pattern_id="999")  # unknown pattern
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id, suggested_mode="dry_run")],
+            findings=[f],
+        )
+        assert dropped == []
+        assert len(kept) == 1
+
+    def test_drop_preserves_raw_emission(self):
+        f = _finding()
+        emission = _raw(finding_id="ghost", weird_extra_field="hi")
+        _, dropped = validate_steps([emission], findings=[f])
+        assert dropped[0].raw_emission == emission
+
+
+# ---------------------------------------------------------------------------
+# Custom resolver injection
+# ---------------------------------------------------------------------------
+
+class TestCustomResolver:
+    def test_resolver_dict_injection_restricts_modes(self):
+        f = _finding()
+        resolver = AvailableModesResolver(resolvers={
+            "001": lambda finding: {RemediationMode.DRY_RUN},
+        })
+        kept, dropped = validate_steps(
+            [_raw(finding_id=f.id, suggested_mode="api_call")],
+            findings=[f],
+            resolver=resolver,
+        )
+        assert kept == []
+        assert dropped[0].reason == DropReason.UNSUPPORTED_MODE.value
+
+
+# ---------------------------------------------------------------------------
+# Direct unit tests on validate_step (single emission)
+# ---------------------------------------------------------------------------
+
+class TestValidateSingleStep:
+    def test_returns_validation_outcome(self):
+        f = _finding()
+        outcome = validate_step(
+            _raw(finding_id=f.id),
+            findings_by_id={f.id: f},
+            resolver=AvailableModesResolver(),
+            seen_finding_ids=set(),
+        )
+        assert outcome.is_kept
+        assert outcome.kept is not None
+        assert outcome.dropped is None
+
+    def test_dropped_outcome_has_no_step(self):
+        f = _finding()
+        outcome = validate_step(
+            _raw(finding_id="ghost"),
+            findings_by_id={f.id: f},
+            resolver=AvailableModesResolver(),
+            seen_finding_ids=set(),
+        )
+        assert not outcome.is_kept
+        assert outcome.kept is None
+        assert outcome.dropped is not None

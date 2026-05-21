@@ -5,7 +5,7 @@ Detects RDS instances with low connections and CPU utilization that may be overs
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class IdleRDSPattern(BasePattern):
@@ -14,6 +14,8 @@ class IdleRDSPattern(BasePattern):
     DESCRIPTION = "RDS instances with low connections and CPU utilization"
     COMPLEXITY = Complexity.MEDIUM
     SERVICES = ["rds", "cloudwatch"]
+    CATEGORY = Category.DATABASE
+    REQUIRED_IAM = ["rds:DescribeDBInstances", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
     # Approximate RDS pricing per hour (varies by region and instance type)
     # NOTE: Hardcoded pricing estimates. These are approximate us-east-1 on-demand
@@ -235,15 +237,36 @@ class IdleRDSPattern(BasePattern):
 
         return downsizing_map.get(current_class)
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
+        if mode != RemediationMode.API_CALL:
+            return super().remediate(finding, mode)
         if not finding.safe_to_fix:
-            raise ValueError(f"RDS instance {finding.resource_id} is not marked safe to fix - manual review required")
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=f"RDS instance {finding.resource_id} is not marked safe to fix - manual review required",
+            )
+        try:
+        
 
-        if dry_run:
-            print(f"[DRY RUN] Would stop RDS instance {finding.resource_id}")
-            return True
 
-        rds = self.session.client('rds', region_name=finding.region)
-        rds.stop_db_instance(DBInstanceIdentifier=finding.resource_id)
-        print(f"Stopped RDS instance {finding.resource_id}")
-        return True
+            rds = self.session.client('rds', region_name=finding.region)
+            rds.stop_db_instance(DBInstanceIdentifier=finding.resource_id)
+            print(f"Stopped RDS instance {finding.resource_id}")
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=True,
+                message="stopped RDS instance",
+            )
+        except Exception as e:
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=str(e),
+            )

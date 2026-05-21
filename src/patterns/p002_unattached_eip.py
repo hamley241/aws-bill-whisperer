@@ -4,7 +4,7 @@ Detects EIPs not attached to any instance or ENI
 """
 
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class UnattachedEIPPattern(BasePattern):
@@ -13,6 +13,8 @@ class UnattachedEIPPattern(BasePattern):
     DESCRIPTION = "Elastic IPs not attached to any instance (charged $0.005/hr)"
     COMPLEXITY = Complexity.EASY
     SERVICES = ["ec2"]
+    CATEGORY = Category.NETWORK
+    REQUIRED_IAM = ["ec2:DescribeAddresses", "ec2:DescribeRegions"]
 
     HOURLY_COST = 0.005  # $0.005/hour when unattached
     MONTHLY_COST = HOURLY_COST * 24 * 30  # ~$3.60/month
@@ -55,12 +57,26 @@ class UnattachedEIPPattern(BasePattern):
 
         return self._findings
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
-        if dry_run:
-            print(f"[DRY RUN] Would release EIP {finding.resource_id}")
-            return True
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
+        if mode != RemediationMode.API_CALL:
+            return super().remediate(finding, mode)
+        try:
 
-        ec2 = self.session.client('ec2', region_name=finding.region)
-        ec2.release_address(AllocationId=finding.resource_id)
-        print(f"Released EIP {finding.resource_id}")
-        return True
+            ec2 = self.session.client('ec2', region_name=finding.region)
+            ec2.release_address(AllocationId=finding.resource_id)
+            print(f"Released EIP {finding.resource_id}")
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=True,
+                message="released EIP",
+            )
+        except Exception as e:
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=str(e),
+            )

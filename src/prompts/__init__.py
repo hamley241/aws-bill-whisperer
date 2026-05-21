@@ -26,6 +26,10 @@ class PromptTemplate:
     # convention (system-vs-user, special tokens, etc.) and is safe to
     # send to any LLMClient. Most templates should aim for this.
     provider_neutral: bool = True
+    # Trace artifacts (planner runs, audit log) record the template
+    # version so a recorded response is replayable against the exact
+    # prompt it was generated against. Bump when you change the text.
+    version: str = "v1"
 
 
 def list_templates() -> list[str]:

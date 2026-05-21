@@ -6,7 +6,7 @@ Intelligent-Tiering, Glacier transitions, or object expiration.
 
 from datetime import datetime, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class S3LifecyclePattern(BasePattern):
@@ -15,6 +15,8 @@ class S3LifecyclePattern(BasePattern):
     DESCRIPTION = "S3 buckets without lifecycle policies that could save money"
     COMPLEXITY = Complexity.MEDIUM
     SERVICES = ["s3", "cloudwatch"]
+    CATEGORY = Category.STORAGE
+    REQUIRED_IAM = ["s3:ListAllMyBuckets", "s3:GetBucketLifecycleConfiguration", "s3:GetBucketLocation"]
 
     # S3 pricing (approximate, varies by region)
     STANDARD_PRICE_PER_GB = 0.023  # Standard storage
@@ -253,13 +255,3 @@ class S3LifecyclePattern(BasePattern):
                 f"Potential savings: ${potential_savings:.2f}/month"
             )
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
-        """
-        S3 lifecycle changes require manual review.
-        Provides guidance but doesn't auto-fix due to data retention implications.
-        """
-        raise NotImplementedError(
-            "S3 lifecycle rule changes require manual review to avoid data loss. "
-            "Review bucket contents and apply appropriate lifecycle policies via "
-            "AWS Console or CLI based on the summary."
-        )

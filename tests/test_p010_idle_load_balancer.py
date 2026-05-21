@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p010_idle_load_balancer import IdleLoadBalancerPattern
-from patterns.base import RiskTier
+from patterns.base import RiskTier, RemediationMode
 
 
 class TestIdleLoadBalancerPattern:
@@ -486,10 +486,10 @@ class TestIdleLoadBalancerPattern:
         pattern = IdleLoadBalancerPattern(session=mock_session)
 
         # WHEN
-        result = pattern.fix(finding, dry_run=True)
+        result = pattern.remediate(finding, RemediationMode.DRY_RUN)
 
         # THEN
-        assert result is True
+        assert result.success
         mock_elbv2.delete_load_balancer.assert_not_called()
 
     def test_fix_raises_for_unsafe(self):
@@ -516,8 +516,9 @@ class TestIdleLoadBalancerPattern:
 
         pattern = IdleLoadBalancerPattern(session=mock_session)
 
-        # WHEN / THEN
-        with pytest.raises(ValueError) as exc_info:
-            pattern.fix(finding, dry_run=False)
+        # WHEN
+        result = pattern.remediate(finding, RemediationMode.API_CALL)
 
-        assert 'has targets or is too new' in str(exc_info.value)
+        # THEN — unsafe findings yield a failed RemediationResult, not an exception
+        assert not result.success
+        assert 'has targets or is too new' in result.message

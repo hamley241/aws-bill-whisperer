@@ -5,7 +5,7 @@ Detects ELBs, ALBs, and NLBs with no targets or zero traffic.
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class IdleLoadBalancerPattern(BasePattern):
@@ -14,6 +14,8 @@ class IdleLoadBalancerPattern(BasePattern):
     DESCRIPTION = "Load balancers with no targets or zero traffic"
     COMPLEXITY = Complexity.EASY
     SERVICES = ["elbv2", "elb", "cloudwatch"]
+    CATEGORY = Category.NETWORK
+    REQUIRED_IAM = ["elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeTargetHealth", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
     # Load Balancer pricing (approximate, varies by region)
     ALB_HOURLY_COST = 0.0225  # $0.0225/hour (~$16.20/month)
@@ -321,30 +323,49 @@ class IdleLoadBalancerPattern(BasePattern):
         except Exception:
             return 0
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
-        """Delete idle load balancer"""
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
+        if mode != RemediationMode.API_CALL:
+            return super().remediate(finding, mode)
         if not finding.safe_to_fix:
-            raise ValueError(
-                f"Load balancer {finding.resource_id} has targets or is too new. "
-                "Manual review required before deletion."
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=f"Load balancer {finding.resource_id} has targets or is too new. "
+                "Manual review required before deletion.",
             )
+        try:
+            """Delete idle load balancer"""
+        
 
-        lb_type = finding.metadata.get('lb_type', '')
+            lb_type = finding.metadata.get('lb_type', '')
 
-        if dry_run:
-            print(f"[DRY RUN] Would delete {finding.resource_type} {finding.resource_id}")
-            return True
 
-        if lb_type == 'classic':
-            elb = self.session.client('elb', region_name=finding.region)
-            elb.delete_load_balancer(LoadBalancerName=finding.resource_id)
-        else:
-            elbv2 = self.session.client('elbv2', region_name=finding.region)
-            lb_arn = finding.metadata.get('lb_arn')
-            if lb_arn:
-                elbv2.delete_load_balancer(LoadBalancerArn=lb_arn)
+            if lb_type == 'classic':
+                elb = self.session.client('elb', region_name=finding.region)
+                elb.delete_load_balancer(LoadBalancerName=finding.resource_id)
             else:
-                raise ValueError(f"Missing ARN for {finding.resource_id}")
+                elbv2 = self.session.client('elbv2', region_name=finding.region)
+                lb_arn = finding.metadata.get('lb_arn')
+                if lb_arn:
+                    elbv2.delete_load_balancer(LoadBalancerArn=lb_arn)
+                else:
+                    raise ValueError(f"Missing ARN for {finding.resource_id}")
 
-        print(f"Deleted {finding.resource_type} {finding.resource_id}")
-        return True
+            print(f"Deleted {finding.resource_type} {finding.resource_id}")
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=True,
+                message="deleted load balancer",
+            )
+        except Exception as e:
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=str(e),
+            )

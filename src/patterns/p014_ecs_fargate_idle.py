@@ -7,7 +7,7 @@ after deployments or testing.
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class ECSFargateIdlePattern(BasePattern):
@@ -16,6 +16,8 @@ class ECSFargateIdlePattern(BasePattern):
     DESCRIPTION = "ECS services with zero traffic or idle Fargate tasks (forgotten deployments)"
     COMPLEXITY = Complexity.MEDIUM
     SERVICES = ["ecs", "cloudwatch"]
+    CATEGORY = Category.COMPUTE
+    REQUIRED_IAM = ["ecs:ListClusters", "ecs:ListServices", "ecs:DescribeServices", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
     # Thresholds
     LOOKBACK_DAYS = 7

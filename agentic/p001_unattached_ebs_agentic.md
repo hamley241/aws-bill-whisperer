@@ -1,5 +1,25 @@
 # Pattern 001: Unattached EBS Volumes - AGENTIC VERSION
 
+## Implementation Status (as of PR 7c — first bulletproof pattern)
+
+| Capability | OSS today | Notes |
+|---|---|---|
+| Detection (cross-region scan) | ✅ | `src/patterns/p001_unattached_ebs.py:scan()` |
+| Confidence scoring | ✅ | `_confidence(age, has_snapshot, snap_age)` |
+| Risk tier classification | ✅ | low / medium / high based on age + $ impact |
+| Evidence capture | ✅ | size, age, snapshot count + latest age, tags, terraform_managed |
+| `dry_run` mode | ✅ | logs what would happen, no AWS calls |
+| `command` mode | ✅ | emits `aws ec2 delete-volume …` |
+| `pr` mode | ✅ (tagged volumes only) | Terraform diff hint when `managed-by-terraform=true` |
+| `api_call` mode | ✅ | `ec2.delete_volume()`; refuses unless safety gates pass |
+| Safety gates | ✅ | snapshot present + ≥1 day old; volume ≥7 days old |
+| Audit log | ✅ | every `remediate()` call recorded via `src/audit.audit_remediation` |
+| Slack "Open PR" button | ✅ | dispatches `pr` mode, posts diff in thread |
+| Scheduled / event-driven trigger | ❌ (paid tier) | scheduled scans + CloudTrail events |
+| Owner identification & dependency mapping | ⚠️ partial | tags only; deeper context comes with paid tier |
+| Rollback automation | ❌ (paid tier) | manual restore from snapshot today |
+| Multi-account scanning | ❌ (paid tier) | single-account OSS scope |
+
 ## Agent Behavior
 
 ### Objective

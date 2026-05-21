@@ -3,7 +3,7 @@ Pattern 003: GP2 to GP3 Migration
 Detects EBS volumes using gp2 that could be migrated to gp3 for ~20% savings
 """
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class GP2ToGP3Pattern(BasePattern):
@@ -12,6 +12,8 @@ class GP2ToGP3Pattern(BasePattern):
     DESCRIPTION = "EBS gp2 volumes that could save ~20% by migrating to gp3"
     COMPLEXITY = Complexity.EASY
     SERVICES = ["ec2", "ebs"]
+    CATEGORY = Category.STORAGE
+    REQUIRED_IAM = ["ec2:DescribeVolumes", "ec2:DescribeRegions"]
 
     # Pricing (per GB-month, approximate for us-east-1)
     GP2_PRICE = 0.10
@@ -120,21 +122,41 @@ class GP2ToGP3Pattern(BasePattern):
 
         return True
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
-        """Migrate volume from gp2 to gp3."""
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
+        if mode != RemediationMode.API_CALL:
+            return super().remediate(finding, mode)
         if not finding.safe_to_fix:
-            raise ValueError(f"Finding {finding.resource_id} is not marked safe to fix")
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=f"Finding {finding.resource_id} is not marked safe to fix",
+            )
+        try:
+            """Migrate volume from gp2 to gp3."""
+        
 
-        if dry_run:
-            print(f"[DRY RUN] Would migrate volume {finding.resource_id} from gp2 to gp3")
-            print(f"[DRY RUN] Command: {finding.fix_command}")
-            return True
 
-        ec2 = self.session.client("ec2", region_name=finding.region)
-        result = ec2.modify_volume(
-            VolumeId=finding.resource_id,
-            VolumeType="gp3",
-            Iops=finding.metadata.get("proposed_iops", 3000)
-        )
-        print(f"Modified volume {finding.resource_id}: {result['VolumeModification']['Status']}")
-        return True
+            ec2 = self.session.client("ec2", region_name=finding.region)
+            result = ec2.modify_volume(
+                VolumeId=finding.resource_id,
+                VolumeType="gp3",
+                Iops=finding.metadata.get("proposed_iops", 3000)
+            )
+            print(f"Modified volume {finding.resource_id}: {result['VolumeModification']['Status']}")
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=True,
+                message="modified volume to gp3",
+            )
+        except Exception as e:
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=str(e),
+            )

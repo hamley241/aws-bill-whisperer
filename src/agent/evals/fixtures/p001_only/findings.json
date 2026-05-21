@@ -1,0 +1,94 @@
+[
+  {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "schema_version": "1",
+    "pattern_id": "001",
+    "resource_id": "vol-aaaa",
+    "resource_type": "EBS Volume",
+    "resource_arn": "arn:aws:ec2:us-east-1::volume/vol-aaaa",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "monthly_impact_usd": 80.0,
+    "confidence": 0.92,
+    "risk_tier": "high",
+    "summary": "Delete 1000GB gp2 volume (age 60d, snapshot: yes)",
+    "explanation": null,
+    "fix_command": "aws ec2 delete-volume --volume-id vol-aaaa --region us-east-1",
+    "fix_pr": null,
+    "evidence": {
+      "size_gb": 1000,
+      "volume_type": "gp2",
+      "age_days": 60,
+      "has_snapshot": true,
+      "latest_snapshot_age_days": 10,
+      "snapshot_count": 1,
+      "terraform_managed": true,
+      "tags": {
+        "managed-by-terraform": "true",
+        "Env": "prod"
+      }
+    },
+    "metadata": {},
+    "safe_to_fix": true
+  },
+  {
+    "id": "22222222-2222-4222-8222-222222222222",
+    "schema_version": "1",
+    "pattern_id": "001",
+    "resource_id": "vol-bbbb",
+    "resource_type": "EBS Volume",
+    "resource_arn": "arn:aws:ec2:us-east-1::volume/vol-bbbb",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "monthly_impact_usd": 8.0,
+    "confidence": 0.55,
+    "risk_tier": "low",
+    "summary": "Delete 100GB gp3 volume (age 3d, snapshot: no)",
+    "explanation": null,
+    "fix_command": "aws ec2 delete-volume --volume-id vol-bbbb --region us-east-1",
+    "fix_pr": null,
+    "evidence": {
+      "size_gb": 100,
+      "volume_type": "gp3",
+      "age_days": 3,
+      "has_snapshot": false,
+      "latest_snapshot_age_days": null,
+      "snapshot_count": 0,
+      "terraform_managed": false,
+      "tags": {}
+    },
+    "metadata": {},
+    "safe_to_fix": false
+  },
+  {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "schema_version": "1",
+    "pattern_id": "001",
+    "resource_id": "vol-cccc",
+    "resource_type": "EBS Volume",
+    "resource_arn": "arn:aws:ec2:us-east-1::volume/vol-cccc",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "monthly_impact_usd": 32.0,
+    "confidence": 0.85,
+    "risk_tier": "medium",
+    "summary": "Delete 400GB gp2 volume (age 90d, snapshot: yes)",
+    "explanation": null,
+    "fix_command": "aws ec2 delete-volume --volume-id vol-cccc --region us-east-1",
+    "fix_pr": null,
+    "evidence": {
+      "size_gb": 400,
+      "volume_type": "gp2",
+      "age_days": 90,
+      "has_snapshot": true,
+      "latest_snapshot_age_days": 30,
+      "snapshot_count": 2,
+      "terraform_managed": false,
+      "tags": {
+        "Env": "staging"
+      }
+    },
+    "metadata": {},
+    "safe_to_fix": true
+  }
+]

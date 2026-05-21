@@ -257,37 +257,31 @@ class TestScanCommand:
 
 
 class TestActionHandlers:
-    def _invoke(self, action_id: str, body: dict):
+    """Open-PR button + overflow menu handlers.
+
+    Open-PR now invokes the pattern's `pr` remediation mode and posts the
+    result in-thread; comprehensive tests live in test_p001_bulletproof.py
+    and test_actions.py. Here we cover the overflow menu and the
+    early-exit paths.
+    """
+
+    def _invoke_overflow(self, body: dict):
         ack = MagicMock()
         respond = MagicMock()
         logger = MagicMock()
-
         stub = _StubApp()
         action_handlers.register(stub)
-        assert action_id in stub.actions
-        stub.actions[action_id](
+        stub.actions["scan_overflow"](
             ack=ack, body=body, respond=respond, logger=logger
         )
         return ack, respond, logger
-
-    def test_open_pr_button_acknowledges_and_replies(self):
-        body = {
-            "user": {"id": "U999"},
-            "actions": [{"value": "finding-uuid-123"}],
-        }
-        ack, respond, logger = self._invoke("open_pr", body)
-        ack.assert_called_once()
-        kwargs = respond.call_args.kwargs
-        assert kwargs["response_type"] == "ephemeral"
-        assert "Open PR" in kwargs["text"]
-        logger.info.assert_called()
 
     def test_overflow_show_all(self):
         body = {
             "user": {"id": "U999"},
             "actions": [{"selected_option": {"value": "show_all"}}],
         }
-        _, respond, _ = self._invoke("scan_overflow", body)
+        _, respond, _ = self._invoke_overflow(body)
         assert "Show all findings" in respond.call_args.kwargs["text"]
 
     def test_overflow_download_json(self):
@@ -295,5 +289,28 @@ class TestActionHandlers:
             "user": {"id": "U999"},
             "actions": [{"selected_option": {"value": "download_json"}}],
         }
-        _, respond, _ = self._invoke("scan_overflow", body)
+        _, respond, _ = self._invoke_overflow(body)
         assert "Download JSON" in respond.call_args.kwargs["text"]
+
+    def test_open_pr_unknown_finding_posts_helpful_message(self):
+        ack = MagicMock()
+        client = MagicMock()
+        logger = MagicMock()
+        stub = _StubApp()
+        action_handlers.register(stub)
+        stub.actions["open_pr"](
+            ack=ack,
+            body={
+                "user": {"id": "U999"},
+                "actions": [{"value": "no-such-finding"}],
+                "channel": {"id": "C1"},
+                "message": {"ts": "msg-1"},
+            },
+            client=client,
+            logger=logger,
+        )
+        ack.assert_called_once()
+        # No matching finding → friendly hint posted in-thread.
+        client.chat_postMessage.assert_called_once()
+        assert "find the scan" in client.chat_postMessage.call_args.kwargs["text"] \
+            or "no longer" in client.chat_postMessage.call_args.kwargs["text"]

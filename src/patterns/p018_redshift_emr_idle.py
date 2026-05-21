@@ -6,7 +6,7 @@ These are very expensive resources that should be terminated when not in use.
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class RedshiftEMRIdlePattern(BasePattern):
@@ -15,6 +15,8 @@ class RedshiftEMRIdlePattern(BasePattern):
     DESCRIPTION = "Redshift and EMR clusters idle after use - very high cost waste"
     COMPLEXITY = Complexity.MEDIUM
     SERVICES = ["redshift", "emr"]
+    CATEGORY = Category.DATABASE
+    REQUIRED_IAM = ["redshift:DescribeClusters", "elasticmapreduce:ListClusters", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
     # Pricing (approximate, varies by instance type and region)
     # Redshift: dc2.large ~$0.25/hour, ra3.xlplus ~$1.086/hour

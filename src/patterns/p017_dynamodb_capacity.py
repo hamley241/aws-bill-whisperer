@@ -7,7 +7,7 @@ Detects DynamoDB tables on suboptimal capacity mode:
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class DynamoDBCapacityPattern(BasePattern):
@@ -16,6 +16,8 @@ class DynamoDBCapacityPattern(BasePattern):
     DESCRIPTION = "DynamoDB tables on wrong capacity mode (On-Demand vs Provisioned)"
     COMPLEXITY = Complexity.MEDIUM
     SERVICES = ["dynamodb"]
+    CATEGORY = Category.DATABASE
+    REQUIRED_IAM = ["dynamodb:ListTables", "dynamodb:DescribeTable", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
     # Pricing (us-east-1, approximate)
     # On-Demand: $1.25 per million WCUs, $0.25 per million RCUs
