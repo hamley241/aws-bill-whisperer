@@ -23,6 +23,7 @@ from slack_bolt import App
 
 from .handlers import actions as action_handlers
 from .handlers import scan as scan_handler
+from .handlers import threads as thread_handlers
 
 if TYPE_CHECKING:
     from config import WhisperConfig
@@ -60,5 +61,6 @@ def make_app(config: "WhisperConfig") -> App:
 
     scan_handler.register(app)
     action_handlers.register(app)
+    thread_handlers.register(app)
 
     return app

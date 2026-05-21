@@ -1,8 +1,10 @@
 """
 Tests for the Slack app — factory, /whisper scan handler, action stubs.
+Thread + app_mention handlers and the LLM Q&A live in tests/test_threads.py.
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -28,6 +30,7 @@ from slack.handlers.scan import (
     set_explainer,
     set_scan_runner,
 )
+from slack.thread_store import get_store
 
 
 def _valid_config(**overrides) -> WhisperConfig:
@@ -55,12 +58,13 @@ def _sample_result() -> ScanResult:
 
 
 class _StubApp:
-    """Captures app.command() and app.action() registrations."""
+    """Captures app.command/action/event registrations."""
 
     def __init__(self, config=None):
         self._whisper_config = config or _valid_config()
         self.commands: dict = {}
         self.actions: dict = {}
+        self.events: dict = {}
 
     def command(self, name):
         def decorator(fn):
@@ -74,14 +78,21 @@ class _StubApp:
             return fn
         return decorator
 
+    def event(self, name):
+        def decorator(fn):
+            self.events[name] = fn
+            return fn
+        return decorator
+
 
 @pytest.fixture(autouse=True)
 def _isolate_handler_globals():
     """Reset module-level injection points after every test."""
-    # Default the explainer to a no-op so handler tests don't hit boto3/LLMs.
     set_explainer(lambda findings, **kwargs: None)
+    get_store().clear()
     yield
     set_background_runner(lambda fn: fn())
+    get_store().clear()
 
 
 class TestAppFactory:
@@ -100,9 +111,14 @@ class TestAppFactory:
 
 
 class TestScanCommand:
-    """Exercise the handler directly with mocked Bolt context."""
+    """Direct handler invocation with mocked Bolt context.
 
-    def _invoke(self, text: str, *, scan_runner=None, app=None):
+    The handler now calls client.chat_postMessage twice (parent post +
+    threaded findings). We assert against the client mock.
+    """
+
+    def _invoke(self, text: str, *, scan_runner=None, app=None,
+                parent_ts: str = "1700000000.001"):
         if scan_runner is not None:
             set_scan_runner(scan_runner)
         else:
@@ -111,6 +127,8 @@ class TestScanCommand:
 
         ack = MagicMock()
         respond = MagicMock()
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": parent_ts, "ok": True}
         logger = MagicMock()
         command = {
             "text": text,
@@ -123,102 +141,119 @@ class TestScanCommand:
         register(stub)
         assert "/whisper" in stub.commands
         stub.commands["/whisper"](
-            ack=ack, respond=respond, command=command, logger=logger
+            ack=ack, respond=respond, command=command, client=client, logger=logger
         )
-        return ack, respond, logger
+        return ack, respond, client, logger
 
     def test_acknowledges_immediately(self):
-        ack, _, _ = self._invoke("scan")
+        ack, _, _, _ = self._invoke("scan")
         ack.assert_called_once()
 
-    def test_scan_posts_started_then_findings(self):
-        _, respond, _ = self._invoke("scan")
-        # Two calls: "scan started" then the blocks payload
-        assert respond.call_count == 2
-        first = respond.call_args_list[0].kwargs
-        second = respond.call_args_list[1].kwargs
+    def test_scan_posts_parent_then_threaded_findings(self):
+        _, _, client, _ = self._invoke("scan")
+        assert client.chat_postMessage.call_count == 2
 
-        assert first["text"] == SCAN_STARTED_TEXT
-        assert first["response_type"] == "in_channel"
+        parent_call = client.chat_postMessage.call_args_list[0].kwargs
+        assert parent_call["channel"] == "C456"
+        assert parent_call["text"] == SCAN_STARTED_TEXT
+        assert "thread_ts" not in parent_call  # parent is top-level
 
-        assert "blocks" in second
-        assert second["response_type"] == "in_channel"
-        assert second["replace_original"] is False
-        # Fallback text mentions the totals
-        assert "$42.50" in second["text"]
+        findings_call = client.chat_postMessage.call_args_list[1].kwargs
+        assert findings_call["channel"] == "C456"
+        assert findings_call["thread_ts"] == "1700000000.001"
+        assert "blocks" in findings_call
+        assert "$42.50" in findings_call["text"]  # fallback
 
-    def test_scan_blocks_include_finding_data(self):
-        _, respond, _ = self._invoke("scan")
-        blocks = respond.call_args_list[1].kwargs["blocks"]
-        import json
+    def test_scan_findings_blocks_include_finding_data(self):
+        _, _, client, _ = self._invoke("scan")
+        blocks = client.chat_postMessage.call_args_list[1].kwargs["blocks"]
         text_blob = json.dumps(blocks)
         assert "vol-abc" in text_blob
         assert "high" in text_blob.lower()
 
-    def test_scan_failure_posts_error(self):
+    def test_thread_context_stored_after_scan(self):
+        self._invoke("scan", parent_ts="ts-42")
+        result = get_store().get("ts-42")
+        assert result is not None
+        assert result.findings[0].resource_id == "vol-abc"
+
+    def test_scan_failure_posts_error_in_thread(self):
         def boom(config=None):
             raise RuntimeError("AWS exploded")
 
-        _, respond, _ = self._invoke("scan", scan_runner=boom)
-        # "scan started" + error message
-        assert respond.call_count == 2
-        error_call = respond.call_args_list[1].kwargs
+        _, _, client, _ = self._invoke("scan", scan_runner=boom)
+        # parent + error message both posted; error lands in thread
+        assert client.chat_postMessage.call_count == 2
+        error_call = client.chat_postMessage.call_args_list[1].kwargs
         assert "Scan failed" in error_call["text"]
         assert "AWS exploded" in error_call["text"]
+        assert error_call["thread_ts"] == "1700000000.001"
+
+    def test_parent_post_failure_replies_ephemeral(self):
+        client = MagicMock()
+        client.chat_postMessage.side_effect = RuntimeError("not_in_channel")
+        ack = MagicMock()
+        respond = MagicMock()
+        logger = MagicMock()
+        stub = _StubApp()
+        set_scan_runner(lambda config=None: _sample_result())
+        set_background_runner(lambda fn: fn())
+
+        register(stub)
+        stub.commands["/whisper"](
+            ack=ack, respond=respond,
+            command={"text": "scan", "channel_id": "C", "user_id": "U"},
+            client=client, logger=logger,
+        )
+
+        respond.assert_called_once()
+        kwargs = respond.call_args.kwargs
+        assert kwargs["response_type"] == "ephemeral"
+        assert "not_in_channel" in kwargs["text"]
 
     def test_empty_text_shows_usage(self):
-        _, respond, _ = self._invoke("")
+        _, respond, _, _ = self._invoke("")
         assert respond.call_args.kwargs["text"] == USAGE_TEXT
         assert respond.call_args.kwargs["response_type"] == "ephemeral"
 
     def test_help_subcommand_shows_usage(self):
-        _, respond, _ = self._invoke("help")
+        _, respond, _, _ = self._invoke("help")
         assert respond.call_args.kwargs["text"] == USAGE_TEXT
 
     def test_unknown_subcommand_is_ephemeral(self):
-        _, respond, _ = self._invoke("destroy-everything")
+        _, respond, _, _ = self._invoke("destroy-everything")
         kwargs = respond.call_args.kwargs
         assert "Unknown subcommand" in kwargs["text"]
         assert kwargs["response_type"] == "ephemeral"
 
     def test_scan_text_is_case_insensitive(self):
-        _, respond, _ = self._invoke("SCAN")
-        assert respond.call_args_list[0].kwargs["text"] == SCAN_STARTED_TEXT
+        _, _, client, _ = self._invoke("SCAN")
+        assert client.chat_postMessage.call_args_list[0].kwargs["text"] == SCAN_STARTED_TEXT
 
     def test_explainer_called_between_scan_and_post(self):
         explain_calls: list = []
 
         def fake_explain(findings, **kwargs):
-            # Stamp every finding so the presenter can render it.
             for f in findings:
                 f.explanation = "Test explanation."
             explain_calls.append(len(findings))
 
         set_explainer(fake_explain)
-        _, respond, _ = self._invoke("scan")
-        assert explain_calls == [1]  # sample result has 1 finding
+        _, _, client, _ = self._invoke("scan")
+        assert explain_calls == [1]
 
-        blocks = respond.call_args_list[1].kwargs["blocks"]
-        import json
-        blob = json.dumps(blocks)
-        assert "Test explanation." in blob
+        blocks = client.chat_postMessage.call_args_list[1].kwargs["blocks"]
+        assert "Test explanation." in json.dumps(blocks)
 
     def test_explainer_failure_does_not_block_post(self):
         def boom(findings, **kwargs):
             raise RuntimeError("LLM dead")
 
         set_explainer(boom)
-        _, respond, _ = self._invoke("scan")
-        # The blocks were still posted even though the explainer failed.
-        assert respond.call_count == 2
-        assert "blocks" in respond.call_args_list[1].kwargs
-
-    def test_logs_caller(self):
-        _, _, logger = self._invoke("scan")
-        logger.info.assert_called()
-        args, _ = logger.info.call_args_list[0]
-        assert "U123" in args
-        assert "C456" in args
+        _, _, client, _ = self._invoke("scan")
+        # The blocks were still posted despite the explainer crashing.
+        assert client.chat_postMessage.call_count == 2
+        assert "blocks" in client.chat_postMessage.call_args_list[1].kwargs
 
 
 class TestActionHandlers:

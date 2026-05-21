@@ -2,10 +2,13 @@
 `/whisper scan` slash command.
 
 Flow:
-  1. ack() the slash command within Slack's 3-second window.
-  2. Reply "scan started" so the user sees activity.
-  3. Off-thread, run the scan and post Block Kit findings as a
-     follow-up via response_url (valid for 30 minutes).
+  1. ack() within Slack's 3-second window.
+  2. Post "scan started" to the channel via chat.postMessage (captures
+     the parent message ts).
+  3. Off-thread, run the scan, ask the LLM to explain top findings,
+     and post Block Kit findings as a threaded reply under the parent.
+  4. Remember the parent ts → ScanResult mapping so subsequent thread
+     messages and app mentions can answer questions with context.
 """
 
 from __future__ import annotations
@@ -23,11 +26,12 @@ from analyzer.explainer import explain_findings  # noqa: E402
 from presenters import BlockKitPresenter, ScanResult  # noqa: E402
 
 from ..scanner import run_scan  # noqa: E402
+from ..thread_store import get_store  # noqa: E402
 
 
 SCAN_STARTED_TEXT = (
     "🔍 *Scanning your AWS account…*\n"
-    "I'll post the findings here in a moment."
+    "I'll post the findings in this thread when I'm done."
 )
 
 UNKNOWN_SUBCOMMAND_TEMPLATE = (
@@ -40,7 +44,7 @@ USAGE_TEXT = (
     "`/whisper scan` — scan your AWS account for cost waste.\n"
 )
 
-# Override in tests to run scans synchronously / inject a stub scanner.
+# Override in tests.
 _scan_runner: Callable[..., ScanResult] = run_scan
 _explainer: Callable[..., None] = explain_findings
 _spawn_background: Callable[[Callable[[], None]], None] = lambda fn: threading.Thread(
@@ -49,19 +53,16 @@ _spawn_background: Callable[[Callable[[], None]], None] = lambda fn: threading.T
 
 
 def set_scan_runner(runner: Callable[..., ScanResult]) -> None:
-    """Tests use this to substitute a stub scanner."""
     global _scan_runner
     _scan_runner = runner
 
 
 def set_explainer(explainer: Callable[..., None]) -> None:
-    """Tests use this to substitute a stub explainer (or no-op)."""
     global _explainer
     _explainer = explainer
 
 
 def set_background_runner(runner: Callable[[Callable[[], None]], None]) -> None:
-    """Tests use this to run background work inline (no threads)."""
     global _spawn_background
     _spawn_background = runner
 
@@ -72,56 +73,74 @@ def register(app: Any) -> None:
     config = getattr(app, "_whisper_config", None)
 
     @app.command("/whisper")
-    def handle_whisper(ack, respond, command, logger):
+    def handle_whisper(ack, respond, command, client, logger):
         ack()
         text = (command.get("text") or "").strip().lower()
         if text == "" or text == "help":
             respond(text=USAGE_TEXT, response_type="ephemeral")
             return
-        if text == "scan":
-            logger.info(
-                "scan requested by user=%s channel=%s",
-                command.get("user_id"),
-                command.get("channel_id"),
+        if text != "scan":
+            respond(
+                text=UNKNOWN_SUBCOMMAND_TEMPLATE.format(text=text),
+                response_type="ephemeral",
             )
-            respond(text=SCAN_STARTED_TEXT, response_type="in_channel")
-            _spawn_background(lambda: _run_and_post(config, respond, logger))
             return
-        respond(
-            text=UNKNOWN_SUBCOMMAND_TEMPLATE.format(text=text),
-            response_type="ephemeral",
+
+        channel = command.get("channel_id")
+        user = command.get("user_id")
+        logger.info("scan requested by user=%s channel=%s", user, channel)
+
+        try:
+            parent = client.chat_postMessage(channel=channel, text=SCAN_STARTED_TEXT)
+        except Exception as e:
+            logger.exception("failed to post scan-started message")
+            respond(
+                text=f":x: Couldn't post to the channel: `{e}`. "
+                     "Make sure the Whisper app has been added to this channel.",
+                response_type="ephemeral",
+            )
+            return
+
+        parent_ts = parent.get("ts") if isinstance(parent, dict) else parent["ts"]
+
+        _spawn_background(
+            lambda: _run_and_post(config, client, channel, parent_ts, logger)
         )
 
 
-def _run_and_post(config, respond, logger) -> None:
-    """Run the scan, ask the LLM to explain top findings, then post."""
+def _run_and_post(config, client, channel: str, parent_ts: str, logger) -> None:
+    """Run the scan, explain top findings, post threaded findings, remember the thread."""
     try:
         result = _scan_runner(config) if config is not None else _scan_runner()
-    except Exception as e:  # surface to channel; never silently swallow
+    except Exception as e:
         logger.exception("scan failed")
-        respond(
-            text=f":x: Scan failed: `{e}`",
-            response_type="in_channel",
-            replace_original=False,
-        )
+        _safe_post(client, channel, parent_ts,
+                   text=f":x: Scan failed: `{e}`", logger=logger)
         return
 
-    # Best-effort: explanations enrich the UI but the scan still
-    # ships if the LLM is misconfigured or unavailable.
     try:
         _explainer(result.findings, config=config)
     except Exception:
         logger.exception("explanation step failed; continuing without explanations")
 
-    presenter = BlockKitPresenter()
-    blocks = presenter.blocks_for_scan(result)
+    blocks = BlockKitPresenter().blocks_for_scan(result)
     fallback = (
         f"Scan complete: {result.finding_count} findings, "
         f"${result.total_monthly_impact_usd:.2f}/mo waste."
     )
-    respond(
-        text=fallback,  # accessibility / notification preview
-        blocks=blocks,
-        response_type="in_channel",
-        replace_original=False,
-    )
+    _safe_post(client, channel, parent_ts, text=fallback, blocks=blocks, logger=logger)
+
+    # Remember the thread so message + app_mention handlers can answer
+    # follow-up questions with scan context.
+    get_store().set(parent_ts, result)
+
+
+def _safe_post(client, channel: str, thread_ts: str, *,
+               text: str, blocks: list | None = None, logger) -> None:
+    try:
+        kwargs: dict = {"channel": channel, "thread_ts": thread_ts, "text": text}
+        if blocks is not None:
+            kwargs["blocks"] = blocks
+        client.chat_postMessage(**kwargs)
+    except Exception:
+        logger.exception("chat.postMessage failed")
