@@ -116,6 +116,14 @@ class SqliteBackend:
         with self._conn() as conn:
             conn.execute(_FINDING_INSERT_SQL, _finding_params(row))
 
+    def get_finding(self, finding_id: str) -> dict | None:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT * FROM findings WHERE id = ?", (finding_id,)
+            )
+            row = cur.fetchone()
+            return _finding_row_to_dict(row) if row else None
+
     def list_findings(self, *, scan_id: str | None = None) -> list[dict]:
         with self._conn() as conn:
             if scan_id is None:

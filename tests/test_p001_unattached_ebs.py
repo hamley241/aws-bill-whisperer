@@ -36,19 +36,22 @@ class TestUnattachedEBSPattern:
                 'CreateTime': create_time,
             }]
         }
-        mock_ec2.describe_snapshots.return_value = {'Snapshots': [{'SnapshotId': 'snap-1'}]}
-        
+        snap_time = datetime.now(timezone.utc) - timedelta(days=5)
+        mock_ec2.describe_snapshots.return_value = {
+            'Snapshots': [{'SnapshotId': 'snap-1', 'StartTime': snap_time}]
+        }
+
         pattern = UnattachedEBSPattern(session=mock_session)
         pattern.get_all_regions = lambda: ['us-east-1']
-        
+
         # WHEN
         findings = pattern.scan()
-        
+
         # THEN
         assert len(findings) == 1
         assert findings[0].resource_id == 'vol-123'
         assert findings[0].monthly_impact_usd == 10.0  # 100GB * $0.10
-        assert findings[0].safe_to_fix is True  # Has snapshot and >7 days old
+        assert findings[0].safe_to_fix is True  # Has recent snapshot and volume >7d old
 
     def test_no_finding_when_all_volumes_attached(self):
         """

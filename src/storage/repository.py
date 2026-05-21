@@ -65,6 +65,12 @@ class WhisperRepository:
         self.backend.insert_finding(asdict(rec))
         return rec
 
+    def get_finding(self, finding_id: str) -> FindingRecord | None:
+        row = self.backend.get_finding(finding_id)
+        if row is None:
+            return None
+        return FindingRecord(**migrate("finding", row))
+
     def list_findings(self, *, scan_id: str | None = None) -> list[FindingRecord]:
         rows = self.backend.list_findings(scan_id=scan_id)
         return [FindingRecord(**migrate("finding", row)) for row in rows]
