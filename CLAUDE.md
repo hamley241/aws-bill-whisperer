@@ -8,7 +8,7 @@ This file is the durable strategic context for the project. Read it before start
 
 **Buyer:** mid-market platform/infra teams ($50K–500K/mo AWS spend). One platform engineer wears the cost hat as 20% of their job. They live in Slack and Terraform/IaC.
 
-**Wedge:** conversational explanation quality. **Moat:** agent framework for safe autonomy. **Pricing model:** open-core with paid tier.
+**Wedge:** in-account AWS bill explanation and safe single-account remediation. **Moat:** agentic FinOps — cross-finding reasoning, account memory, and goal-driven savings workflows grounded in deterministic evidence, audit logs, and safe remediation modes. **Pricing model:** open-core with paid tier.
 
 ## Non-negotiable architectural principles
 
@@ -24,54 +24,102 @@ These constraints override convenience. If a design decision conflicts with one 
 
 5. **Generous OSS.** The OSS tier must be the most complete free cost-optimization tool available. Detection, explanation, agent framework, and single-account remediation are ALWAYS OSS. Gating intelligence kills the wedge.
 
+## Design rule: LLM proposes; framework disposes
+
+This is the rule that lets us sell "agentic" without ceding the audit trail. The LLM is a reasoning interface, not a decision authority. Every action the user observes lands through a deterministic path: detection → safety gate → mode dispatch → `audit_remediation` write. The LLM's role is presentation, ranking, and planning *around* that path, never inside it.
+
+**The LLM may:**
+- explain findings in plain English
+- rank and prioritize across findings using context the user provided
+- plan a sequence of fixes toward a stated savings goal
+- ask clarifying follow-up questions
+- suggest which of a pattern's available modes (`dry_run`, `command`, `pr`, `api_call`) fits the situation; the pattern's eligibility checks decide whether that mode actually runs
+
+**The LLM never:**
+- invents finding IDs, resource IDs, ARNs, account IDs, or regions
+- reports cost figures absent from `Finding.evidence` or `Finding.monthly_impact_usd`
+- claims a safety gate passed — only the deterministic gate code in the pattern can state that
+- describes a remediation as completed — only an `audit_remediation` write with `success=True` can
+- bypasses, overrides, or argues against a safety gate — gates are not negotiable, including by the user via the LLM
+- infers a resource's state from prior context — only a fresh boto3 call through the pattern reflects current state
+- recommends an action the pattern hasn't exposed as a remediation mode with passing safety gates
+
+Agent outputs that rank, plan, or recommend action are replayable against recorded scan fixtures. The full trace schema lives in `docs/agent-traceability.md`, produced by the agent-loop spike.
+
 ## The OSS/paid seam
 
 **Public contract — write this down, commit to it:**
 
-Always OSS:
-- All detection patterns (currently 20, will grow)
-- All agent logic and the agent framework itself
+Always OSS (trust ladder rungs 1–4):
+- All detection patterns and the pattern plugin interface
+- Local agent loop (single-process) that reasons across findings, ranks, plans
 - Plain-English explanation via customer's chosen LLM
 - Single-account scanning and remediation
-- Self-hostable Slack app (customer creates their own Slack app)
-- CLI and local web UI
-- Local audit logs to files or customer's S3
+- All four remediation modes per pattern (`dry_run`, `command`, `pr`, `api_call`) for single-account use
+- Self-hostable Slack app
+- CLI + Slack + multi-turn thread Q&A
+- Local audit logs (SQLite at `~/.whisper/whisper.db` + JSONL prompt log)
 - Agentic specs for all patterns (markdown + runnable code)
+- Single-account PR generation for any pattern that supports `pr` mode
 
-Always paid:
-- Production-grade deployable stack (CloudFormation/Terraform) for in-account install
-- AWS Organizations / multi-account scanning with cross-account role management
-- Continuous scheduled scanning with state tracking
-- PR-native autopilot operated across many repos with merge tracking
-- SSO/SAML on the local dashboard, RBAC
-- Audit log retention guarantees, queryable history
-- Enterprise integrations (Datadog, PagerDuty, ServiceNow connectors)
+Always paid (trust ladder rungs 5–6):
+- Multi-account orchestration (AWS Organizations + cross-account roles)
+- Scheduled scans with state tracking across runs
+- Account-level memory for the agent (cross-scan context, "we agreed last month not to touch X")
+- Cross-account prioritization and savings campaigns
+- Policy packs and team-ownership mapping
+- Approval workflows and PR autopilot at scale (merge tracking, regression rollback)
+- Closed-loop optimization: monitor → revert → re-plan
+- SSO/SAML, RBAC, audit retention guarantees
+- Enterprise integrations (Datadog, PagerDuty, ServiceNow)
 - Upgrade automation, support, SLA
 
-**The seam in one sentence:** *If a single engineer with a laptop and one AWS account can do it, it's OSS. If it requires production infrastructure deployed into the customer's account that we maintain, it's paid.*
+**The seam in one sentence:** *OSS has local reasoning — single account, one engineer, on-demand. Paid has recurring, multi-account, governed autonomy.*
 
 ## Current state
 
-- 20 detection patterns (`p001`–`p020`) — static, hand-coded
-- Strands Agents SDK wrapping detection into compute/storage/monitoring specialist agents
-- Orchestrator runs specialists concurrently
-- FastAPI + WebSocket web UI on `localhost:8000`
-- CLI chat alternative
-- Intent router dispatches questions to specialists
-- LLM backend: Bedrock Claude or OpenAI (configurable)
-- Cost Explorer + CloudWatch (real, not mocked) + optional CUR CSV
-- Lambda deployment via SAM template
-- 3 of 20 patterns have full agentic specs; 17 are static-only
+- 20 detection patterns (`p001`–`p020`). The pattern interface has been upgraded around Category, REQUIRED_IAM, `RemediationMode`, `RemediationResult`, and a single `remediate(finding, mode)` entry point; p001 is the first fully bulletproof implementation of the new contract.
+- **p001 unattached EBS** ships all four remediation modes, safety gates, evidence-rich findings, and a Slack Open-PR button wired through the audit log.
+- Single `LLMClient` interface in `src/llm/` (Bedrock default, OpenAI + Anthropic-direct supported). Every prompt logged to `~/.whisper/prompts.log` with provider + boundary-crossed metadata.
+- Prompt templates in `src/prompts/` — cost analysis, anomaly, recommendations, finding explanation, thread reply.
+- `FindingPresenter` abstraction in `src/presenters/` — text, markdown, JSON, Slack Block Kit.
+- `WhisperConfig` + `whisper-config doctor` for validation (`--json`, `--check`, `--no-network`).
+- SQLite-backed audit log in `src/storage/` + versioned `src/schemas/` (findings, remediations, prompts).
+- Slack app: `/whisper scan`, Block Kit findings, thread Q&A via `LLMClient`, Open-PR button for p001, SAM Lambda adapter + manifest + quickstart docs.
+- `_legacy/strandsagents/` contains the retired pre-clean-architecture Strands skeleton; it is kept for reference and not imported.
+- ~390 tests passing, no AWS / Slack network access required.
 
 ## 90-day plan
 
-**Weeks 1–3 — Slack app, self-hostable.** Make the Whisperer demo-able in 5 minutes via Slack. Slack manifest + one-command installer + clear docs. The OSS surface for the wedge.
+**Weeks 1–3 — Slack app, self-hostable.** *Shipped (PRs 1–6 + refactor wave 0a–0d).* Slack app posts threaded findings, explains them, takes follow-up questions, runs on Lambda or Socket Mode.
 
-**Weeks 4–7 — Three bulletproof patterns.** Pick three patterns, build full agentic specs (detection, confidence scoring, dry-run, PR-based remediation, rollback, audit log). Nominees: unattached EBS volumes, NAT Gateway / missing VPC endpoints, idle EC2/RDS. The other 17 stay detection-only.
+**Weeks 4–7 — Agent foundations + first bulletproof patterns.** Sequence:
 
-**Weeks 8–10 — Trust ladder, two rungs.** Rung 1 (OSS): "show me + tell me how." Rung 2 (paid): "open a PR and wait for me." PR-native autopilot in-account. GitHub App is customer-installed, not vendor-hosted.
+1. *Shipped:* Pattern interface upgrade (Category, REQUIRED_IAM, `RemediationMode`, `RemediationResult`, `remediate(finding, mode)` single entry point — PR 7a).
+2. *Shipped:* SQLite audit log + versioned `schemas/` module (PR 7b).
+3. *Shipped:* **p001 unattached EBS — first bulletproof pattern**, all four remediation modes, safety gates, Slack Open-PR button wired through the audit log (PR 7c).
+4. **Agent-loop spike (1 week).** A real LLM agent loop over the clean modules — not Strands. Goal: prove cross-finding reasoning works on a stub scan; lay down the agent contract before any new pattern is designed against it.
+5. **Agent evaluation harness, built in the same spike window.** Recorded scan fixtures + canned questions + expected behaviour. Every agent-loop change runs through it before merge. This is what keeps "agentic" honest.
+6. **p006 NAT Gateway as the first agent-native pattern.** Evidence schema designed around what the planner needs (egress destinations, top traffic, VPC endpoint candidates). Detection deterministic; "which endpoint, in what order, with what risk" is LLM-proposed against deterministic evidence.
+7. **p004 idle EC2.** Same shape: deterministic evidence, agentic prioritization and recommendation framing.
+8. **Cross-pattern savings planner.** Given a scan and a goal ("cut 20%"), the planner walks findings across patterns and proposes an ordered plan with $ impact, risk, and the modes it would use. Output is a plan, not an execution — the user clicks per step.
 
-**Weeks 11–13 — Multi-account.** The deployable stack supports AWS Organizations and cross-account role assumption. First exclusively-paid feature.
+**Weeks 8–10 — Trust ladder (six rungs, replaces prior two-rung spec).** See "Trust ladder" section below. Rungs 1–4 are OSS. Rungs 5–6 are the paid-tier boundary.
+
+**Weeks 11–13 — Multi-account.** Cross-account role assumption, AWS Organizations, account-level memory in the agent. First exclusively-paid feature.
+
+## Trust ladder (replaces prior Weeks 8–10 two-rung spec)
+
+Six rungs, mapped to the OSS/paid seam. A customer climbs one rung at a time; the agent never reaches above where the customer has explicitly opted in.
+
+1. **Explain.** Scan, render findings, narrate in plain English. *OSS, shipped.*
+2. **Prioritize.** Rank findings by $ impact, risk, and customer-stated goal. *OSS, in progress (cross-pattern reasoning).*
+3. **Plan.** Given a goal, propose an ordered remediation sequence with per-step $ impact and risk. *OSS, planned (cross-pattern planner).*
+4. **Propose.** Generate the exact PR diff or AWS CLI command for each step. *OSS, shipped for p001; expanding pattern-by-pattern.*
+5. **Autopilot with approval.** Scheduled scans + queued PRs; a human approves each PR but the agent runs the loop. *Paid.*
+6. **Closed-loop optimization.** Agent monitors post-remediation metrics, reverts on regression, runs the next scan, plans, proposes, repeats. *Paid.*
+
+Rungs 5–6 are the paid boundary because they require recurring infrastructure operated in the customer's account (state, schedulers, PR-tracking webhooks) — the kind of thing a single engineer with a laptop doesn't run themselves.
 
 ## Explicit non-goals (next 90 days)
 
@@ -90,7 +138,7 @@ Every implementation decision should ladder back to making this demo real, repea
 
 ## Stack
 
-Python, Strands Agents SDK, boto3, FastAPI, Bedrock/OpenAI, AWS SAM. MIT-licensed.
+Python 3.10+, slack-bolt, boto3, Bedrock/OpenAI/Anthropic SDKs, AWS SAM, SQLite. MIT-licensed.
 
 ## Architectural principles — read before writing any code
 
@@ -159,13 +207,13 @@ The interface enforces:
 
 Prompts themselves live in a `prompts/` directory as templates, not as inline strings scattered through agent code. New agents compose prompts from templates; they don't write them inline.
 
-### 6. Agents compose patterns; orchestrators compose agents
+### 6. One agent, many tools; tools are patterns
 
-Specialist agents (compute, storage, monitoring, ...) are not hand-coded over specific patterns. An agent is constructed by category — `ComputeAgent` is "the agent that runs all patterns where `category == "compute"`." Adding a pattern to the compute category automatically makes it available to the compute agent. No agent code changes.
+There is one agent loop in OSS. It does not have specialist sub-agents. Patterns are *tools* the agent calls — discovery (which findings exist), evidence (data behind a finding), modes (dry_run / command / pr / api_call). Category metadata helps the agent filter and route ("the user asked about storage — restrict to `Category.STORAGE` patterns"), but no `ComputeAgent` class exists.
 
-The orchestrator composes agents the same way — by querying which agents are registered, not by hard-coding a list. Adding a `NetworkAgent` is a registration, not a refactor.
+The Strands-shaped multi-agent layer in the original design has been retired (see `_legacy/strandsagents/`). Specialist agents added complexity (inter-agent communication, conflicting recommendations, ad-hoc dict formats) without commensurate benefit. One agent with a sharp tool list is easier to reason about, easier to evaluate, and produces more coherent plans.
 
-This is what makes the question "do we need network/database/ML-GPU specialist agents?" cheap to answer later: spinning one up is mostly category metadata, not new orchestration code.
+The paid tier may run multiple planner instances across accounts — but each instance is still a single loop calling the same pattern tools. There is no compute-vs-storage split.
 
 ### 7. The control plane / data plane split is real from day one
 
@@ -208,5 +256,6 @@ The existing codebase predates these principles. Some of it conforms; some doesn
 - First task to touch the pattern layer: refactor all 20 patterns to the `Pattern` interface (principle 1).
 - First task to touch the LLM layer: introduce the `LLMClient` interface and migrate existing call sites (principle 5).
 - First task to touch storage: introduce the schema module and the storage backend abstraction (principle 8).
+- First task to touch the agent layer: build it fresh over the clean modules (`patterns`, `llm`, `storage`, `presenters`, `audit`). Do not refactor `_legacy/strandsagents/`.
 
 This is intentional. We pay the refactoring cost once, at the moment it's most clearly justified by the next feature, rather than as a separate "cleanup" project that never gets prioritized. Tasks should budget for this refactoring work explicitly in scope.
