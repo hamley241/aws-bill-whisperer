@@ -68,6 +68,30 @@ CREATE TABLE IF NOT EXISTS remediations (
 CREATE INDEX IF NOT EXISTS remediations_finding_id_idx ON remediations(finding_id);
 CREATE INDEX IF NOT EXISTS remediations_attempted_at_idx ON remediations(attempted_at);
 
+CREATE TABLE IF NOT EXISTS plans (
+    id                          TEXT PRIMARY KEY,
+    schema_version              TEXT NOT NULL,
+    scan_id                     TEXT,
+    goal                        TEXT,
+    status                      TEXT NOT NULL,
+    steps_json                  TEXT NOT NULL,
+    dropped_steps_json          TEXT NOT NULL,
+    total_monthly_impact_usd    REAL NOT NULL,
+    summary                     TEXT NOT NULL,
+    confidence                  REAL NOT NULL,
+    prompt_template             TEXT NOT NULL,
+    prompt_template_version     TEXT NOT NULL,
+    model                       TEXT NOT NULL,
+    provider                    TEXT NOT NULL,
+    boundary_crossed            INTEGER NOT NULL,
+    parse_retry_count           INTEGER NOT NULL,
+    input_finding_ids_json      TEXT NOT NULL,
+    actor                       TEXT,
+    created_at                  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS plans_scan_id_idx ON plans(scan_id);
+CREATE INDEX IF NOT EXISTS plans_created_at_idx ON plans(created_at);
+
 CREATE TABLE IF NOT EXISTS prompts (
     id              TEXT PRIMARY KEY,
     schema_version  TEXT NOT NULL,
@@ -153,6 +177,28 @@ class SqliteBackend:
                 )
             return [_remediation_row_to_dict(r) for r in cur.fetchall()]
 
+    # ----- plans -----
+    def insert_plan(self, row: dict) -> None:
+        with self._conn() as conn:
+            conn.execute(_PLAN_INSERT_SQL, _plan_params(row))
+
+    def get_plan(self, plan_id: str) -> dict | None:
+        with self._conn() as conn:
+            cur = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,))
+            row = cur.fetchone()
+            return _plan_row_to_dict(row) if row else None
+
+    def list_plans(self, *, scan_id: str | None = None) -> list[dict]:
+        with self._conn() as conn:
+            if scan_id is None:
+                cur = conn.execute("SELECT * FROM plans ORDER BY created_at DESC")
+            else:
+                cur = conn.execute(
+                    "SELECT * FROM plans WHERE scan_id = ? ORDER BY created_at",
+                    (scan_id,),
+                )
+            return [_plan_row_to_dict(r) for r in cur.fetchall()]
+
     # ----- prompts -----
     def insert_prompt(self, row: dict) -> None:
         with self._conn() as conn:
@@ -224,6 +270,34 @@ def _remediation_row_to_dict(r: sqlite3.Row) -> dict:
     d = dict(r)
     d["success"] = bool(d["success"])
     d["evidence"] = json.loads(d.pop("evidence_json"))
+    return d
+
+
+_PLAN_INSERT_SQL = """
+INSERT INTO plans (
+    id, schema_version, scan_id, goal, status, steps_json, dropped_steps_json,
+    total_monthly_impact_usd, summary, confidence, prompt_template,
+    prompt_template_version, model, provider, boundary_crossed,
+    parse_retry_count, input_finding_ids_json, actor, created_at
+) VALUES (
+    :id, :schema_version, :scan_id, :goal, :status, :steps_json, :dropped_steps_json,
+    :total_monthly_impact_usd, :summary, :confidence, :prompt_template,
+    :prompt_template_version, :model, :provider, :boundary_crossed,
+    :parse_retry_count, :input_finding_ids_json, :actor, :created_at
+)
+"""
+
+
+def _plan_params(row: dict) -> dict:
+    return {
+        **row,
+        "boundary_crossed": int(bool(row["boundary_crossed"])),
+    }
+
+
+def _plan_row_to_dict(r: sqlite3.Row) -> dict:
+    d = dict(r)
+    d["boundary_crossed"] = bool(d["boundary_crossed"])
     return d
 
 

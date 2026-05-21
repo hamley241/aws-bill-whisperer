@@ -122,6 +122,78 @@ class TestRemediationAuditLog:
         assert len({r.id for r in rows}) == 3  # unique audit IDs
 
 
+class TestPlanPersistence:
+    def _record(self, **overrides) -> "PlanRecord":  # noqa: F821
+        from schemas import PlanRecord
+        import uuid
+        defaults = dict(
+            id=str(uuid.uuid4()),
+            scan_id="scan-x",
+            goal="cut 20%",
+            status="ok",
+            steps_json='[{"finding_id":"f1","order_rank":1}]',
+            dropped_steps_json="[]",
+            total_monthly_impact_usd=42.5,
+            summary="trim EBS first.",
+            confidence=0.7,
+            prompt_template="savings_plan",
+            prompt_template_version="v1",
+            model="stub-model",
+            provider="stub",
+            boundary_crossed=False,
+            parse_retry_count=0,
+            input_finding_ids_json='["f1"]',
+            actor="U-test",
+        )
+        defaults.update(overrides)
+        return PlanRecord(**defaults)
+
+    def test_round_trip(self, repo: WhisperRepository):
+        rec = self._record()
+        repo.record_plan(rec)
+        out = repo.get_plan(rec.id)
+        assert out is not None
+        assert out.id == rec.id
+        assert out.status == "ok"
+        assert out.prompt_template_version == "v1"
+        assert out.parse_retry_count == 0
+        assert out.boundary_crossed is False
+        assert out.schema_version == CURRENT_SCHEMA_VERSION
+
+    def test_list_by_scan_id(self, repo: WhisperRepository):
+        repo.record_plan(self._record(scan_id="A"))
+        repo.record_plan(self._record(scan_id="A"))
+        repo.record_plan(self._record(scan_id="B"))
+        a = repo.list_plans(scan_id="A")
+        b = repo.list_plans(scan_id="B")
+        assert len(a) == 2
+        assert len(b) == 1
+
+    def test_unknown_id_returns_none(self, repo: WhisperRepository):
+        assert repo.get_plan("does-not-exist") is None
+
+    def test_validation_failed_status_persists(self, repo: WhisperRepository):
+        rec = self._record(status="validation_failed",
+                           steps_json="[]",
+                           total_monthly_impact_usd=0.0)
+        repo.record_plan(rec)
+        out = repo.get_plan(rec.id)
+        assert out.status == "validation_failed"
+
+
+class TestPromptTemplateVersion:
+    def test_default_is_v1(self):
+        from prompts import PromptTemplate
+        t = PromptTemplate(name="x", text="hi", description="d")
+        assert t.version == "v1"
+
+    def test_existing_templates_have_v1(self):
+        from prompts import list_templates, load_template
+        for name in list_templates():
+            assert load_template(name).version == "v1", \
+                f"template {name} lost its v1 default"
+
+
 class TestPromptPersistence:
     def test_record_and_list(self, repo: WhisperRepository):
         repo.record_prompt(

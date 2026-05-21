@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Iterable
 
 from schemas import (
     FindingRecord,
+    PlanRecord,
     PromptRecord,
     RemediationRecord,
 )
@@ -100,6 +101,21 @@ class WhisperRepository:
                           ) -> list[RemediationRecord]:
         rows = self.backend.list_remediations(finding_id=finding_id)
         return [RemediationRecord(**migrate("remediation", row)) for row in rows]
+
+    # ----- planner trace -----
+    def record_plan(self, plan_record: PlanRecord) -> PlanRecord:
+        self.backend.insert_plan(asdict(plan_record))
+        return plan_record
+
+    def get_plan(self, plan_id: str) -> PlanRecord | None:
+        row = self.backend.get_plan(plan_id)
+        if row is None:
+            return None
+        return PlanRecord(**migrate("plan", row))
+
+    def list_plans(self, *, scan_id: str | None = None) -> list[PlanRecord]:
+        rows = self.backend.list_plans(scan_id=scan_id)
+        return [PlanRecord(**migrate("plan", row)) for row in rows]
 
     # ----- prompts (optional mirror of the JSONL log) -----
     def record_prompt(

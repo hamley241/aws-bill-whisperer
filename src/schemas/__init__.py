@@ -13,6 +13,7 @@ tier swaps in DynamoDB / Postgres behind the same shape.
 from .records import (
     CURRENT_SCHEMA_VERSION,
     FindingRecord,
+    PlanRecord,
     PromptRecord,
     RemediationRecord,
 )
@@ -20,6 +21,7 @@ from .records import (
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
     "FindingRecord",
+    "PlanRecord",
     "PromptRecord",
     "RemediationRecord",
 ]

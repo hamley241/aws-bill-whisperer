@@ -67,6 +67,36 @@ class RemediationRecord:
 
 
 @dataclass
+class PlanRecord:
+    """One row per SavingsPlanner.plan() call.
+
+    Steps and dropped emissions are JSON-encoded blobs — they don't have
+    independent lifecycle and don't need their own tables. The trace
+    fields (prompt_template_version, model, provider, …) make a plan
+    replayable against the exact prompt+model that produced it.
+    """
+    id: str
+    scan_id: str | None
+    goal: str | None
+    status: str                     # "ok" | "validation_failed"
+    steps_json: str                 # JSON-serialised list[PlanStep dict]
+    dropped_steps_json: str         # JSON-serialised list[DroppedStep dict]
+    total_monthly_impact_usd: float
+    summary: str
+    confidence: float
+    prompt_template: str
+    prompt_template_version: str
+    model: str
+    provider: str
+    boundary_crossed: bool
+    parse_retry_count: int
+    input_finding_ids_json: str     # JSON list[str]
+    actor: str | None
+    created_at: str = field(default_factory=_now)
+    schema_version: str = CURRENT_SCHEMA_VERSION
+
+
+@dataclass
 class PromptRecord:
     """LLM prompt+response (mirrors llm.PromptLogRecord, persisted here for
     long-term audit when the customer wants it in their database rather

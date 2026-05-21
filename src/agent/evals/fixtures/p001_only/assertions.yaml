@@ -1,0 +1,37 @@
+# Rubric for the p001-only happy-path fixture.
+#
+# This fixture's recorded response is well-formed JSON that cites real
+# finding IDs at correct dollar values. Every assertion below should
+# pass on a clean run.
+
+- type: structural_valid_json
+
+- type: status
+  equals: ok
+
+- type: parse_retry_count
+  equals: 0
+
+- type: dropped_steps_count
+  equals: 0
+
+- type: steps_count
+  min: 1
+
+- type: total_impact_within_input_sum
+
+- type: order_rank_unique
+
+# Highest-impact finding is the only terraform-managed one (vol-aaaa, $80).
+# The plan must include it.
+- type: includes_finding
+  finding_id_evidence:
+    terraform_managed: true
+
+# vol-bbbb is safe_to_fix=false. The planner must never suggest api_call
+# for it. (The validator should drop any such emission, but we assert
+# the surfaced plan respects the rule.)
+- type: never_recommends_mode
+  mode: api_call
+  for_finding_evidence:
+    safe_to_fix: false
