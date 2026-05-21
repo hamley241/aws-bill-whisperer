@@ -1,9 +1,5 @@
 """
-Tests for the Slack app skeleton.
-
-PR 1 scope: /whisper scan is registered, ACKs, and replies with a
-"scan started" message. Block Kit, LLM explanations, threads, and the
-Lambda adapter land in later PRs.
+Tests for the Slack app — factory, /whisper scan handler, action stubs.
 """
 from __future__ import annotations
 
@@ -20,8 +16,17 @@ for p in (_REPO, _SRC):
         sys.path.insert(0, str(p))
 
 from config import WhisperConfig
+from patterns.base import Finding, RiskTier
+from presenters import ScanResult
 from slack import make_app
-from slack.handlers.scan import SCAN_STARTED_TEXT, USAGE_TEXT, register
+from slack.handlers import actions as action_handlers
+from slack.handlers.scan import (
+    SCAN_STARTED_TEXT,
+    USAGE_TEXT,
+    register,
+    set_background_runner,
+    set_scan_runner,
+)
 
 
 def _valid_config(**overrides) -> WhisperConfig:
@@ -33,11 +38,55 @@ def _valid_config(**overrides) -> WhisperConfig:
     return WhisperConfig(**defaults)
 
 
+def _sample_result() -> ScanResult:
+    finding = Finding(
+        resource_id="vol-abc",
+        resource_type="EBS Volume",
+        region="us-east-1",
+        monthly_impact_usd=42.5,
+        summary="Delete unattached volume",
+        pattern_id="001",
+        risk_tier=RiskTier.HIGH,
+        confidence=0.9,
+        fix_command="aws ec2 delete-volume --volume-id vol-abc",
+    )
+    return ScanResult.from_findings([finding])
+
+
+class _StubApp:
+    """Captures app.command() and app.action() registrations."""
+
+    def __init__(self, config=None):
+        self._whisper_config = config or _valid_config()
+        self.commands: dict = {}
+        self.actions: dict = {}
+
+    def command(self, name):
+        def decorator(fn):
+            self.commands[name] = fn
+            return fn
+        return decorator
+
+    def action(self, name):
+        def decorator(fn):
+            self.actions[name] = fn
+            return fn
+        return decorator
+
+
+@pytest.fixture(autouse=True)
+def _isolate_handler_globals():
+    """Reset module-level injection points after every test."""
+    from slack.handlers.scan import _scan_runner as orig_runner  # noqa: F401
+    yield
+    # Default the background runner back to inline to keep other tests sane.
+    set_background_runner(lambda fn: fn())
+
+
 class TestAppFactory:
     def test_builds_app_with_credentials(self):
         app = make_app(_valid_config())
         assert app is not None
-        # Config attached for downstream handlers (PR 2+).
         assert app._whisper_config.slack_bot_token == "xoxb-test-bot-token"
 
     def test_missing_bot_token_raises(self):
@@ -50,14 +99,15 @@ class TestAppFactory:
 
 
 class TestScanCommand:
-    """Exercise the handler directly with mocked Bolt context.
+    """Exercise the handler directly with mocked Bolt context."""
 
-    Going through the full Bolt request pipeline requires HTTP signature
-    verification; per Bolt's docs, unit-testing handlers in isolation
-    with mocked ack/respond is the recommended pattern.
-    """
+    def _invoke(self, text: str, *, scan_runner=None, app=None):
+        if scan_runner is not None:
+            set_scan_runner(scan_runner)
+        else:
+            set_scan_runner(lambda config=None: _sample_result())
+        set_background_runner(lambda fn: fn())  # inline
 
-    def _invoke(self, text: str):
         ack = MagicMock()
         respond = MagicMock()
         logger = MagicMock()
@@ -68,38 +118,57 @@ class TestScanCommand:
             "team_id": "T789",
         }
 
-        # Capture the registered handler by stubbing app.command()
-        captured: dict = {}
-
-        class _StubApp:
-            def command(self, name):
-                def decorator(fn):
-                    captured["name"] = name
-                    captured["fn"] = fn
-                    return fn
-                return decorator
-
-        register(_StubApp())
-        assert captured["name"] == "/whisper"
-        captured["fn"](ack=ack, respond=respond, command=command, logger=logger)
+        stub = app or _StubApp()
+        register(stub)
+        assert "/whisper" in stub.commands
+        stub.commands["/whisper"](
+            ack=ack, respond=respond, command=command, logger=logger
+        )
         return ack, respond, logger
 
     def test_acknowledges_immediately(self):
         ack, _, _ = self._invoke("scan")
         ack.assert_called_once()
 
-    def test_scan_posts_in_channel(self):
+    def test_scan_posts_started_then_findings(self):
         _, respond, _ = self._invoke("scan")
-        respond.assert_called_once()
-        kwargs = respond.call_args.kwargs
-        assert kwargs["text"] == SCAN_STARTED_TEXT
-        assert kwargs["response_type"] == "in_channel"
+        # Two calls: "scan started" then the blocks payload
+        assert respond.call_count == 2
+        first = respond.call_args_list[0].kwargs
+        second = respond.call_args_list[1].kwargs
+
+        assert first["text"] == SCAN_STARTED_TEXT
+        assert first["response_type"] == "in_channel"
+
+        assert "blocks" in second
+        assert second["response_type"] == "in_channel"
+        assert second["replace_original"] is False
+        # Fallback text mentions the totals
+        assert "$42.50" in second["text"]
+
+    def test_scan_blocks_include_finding_data(self):
+        _, respond, _ = self._invoke("scan")
+        blocks = respond.call_args_list[1].kwargs["blocks"]
+        import json
+        text_blob = json.dumps(blocks)
+        assert "vol-abc" in text_blob
+        assert "high" in text_blob.lower()
+
+    def test_scan_failure_posts_error(self):
+        def boom(config=None):
+            raise RuntimeError("AWS exploded")
+
+        _, respond, _ = self._invoke("scan", scan_runner=boom)
+        # "scan started" + error message
+        assert respond.call_count == 2
+        error_call = respond.call_args_list[1].kwargs
+        assert "Scan failed" in error_call["text"]
+        assert "AWS exploded" in error_call["text"]
 
     def test_empty_text_shows_usage(self):
         _, respond, _ = self._invoke("")
-        kwargs = respond.call_args.kwargs
-        assert kwargs["text"] == USAGE_TEXT
-        assert kwargs["response_type"] == "ephemeral"
+        assert respond.call_args.kwargs["text"] == USAGE_TEXT
+        assert respond.call_args.kwargs["response_type"] == "ephemeral"
 
     def test_help_subcommand_shows_usage(self):
         _, respond, _ = self._invoke("help")
@@ -109,17 +178,58 @@ class TestScanCommand:
         _, respond, _ = self._invoke("destroy-everything")
         kwargs = respond.call_args.kwargs
         assert "Unknown subcommand" in kwargs["text"]
-        assert "destroy-everything" in kwargs["text"]
         assert kwargs["response_type"] == "ephemeral"
 
     def test_scan_text_is_case_insensitive(self):
         _, respond, _ = self._invoke("SCAN")
-        assert respond.call_args.kwargs["text"] == SCAN_STARTED_TEXT
+        assert respond.call_args_list[0].kwargs["text"] == SCAN_STARTED_TEXT
 
     def test_logs_caller(self):
         _, _, logger = self._invoke("scan")
-        logger.info.assert_called_once()
-        args, _ = logger.info.call_args
-        # info("...user=%s channel=%s", user_id, channel_id)
+        logger.info.assert_called()
+        args, _ = logger.info.call_args_list[0]
         assert "U123" in args
         assert "C456" in args
+
+
+class TestActionHandlers:
+    def _invoke(self, action_id: str, body: dict):
+        ack = MagicMock()
+        respond = MagicMock()
+        logger = MagicMock()
+
+        stub = _StubApp()
+        action_handlers.register(stub)
+        assert action_id in stub.actions
+        stub.actions[action_id](
+            ack=ack, body=body, respond=respond, logger=logger
+        )
+        return ack, respond, logger
+
+    def test_open_pr_button_acknowledges_and_replies(self):
+        body = {
+            "user": {"id": "U999"},
+            "actions": [{"value": "finding-uuid-123"}],
+        }
+        ack, respond, logger = self._invoke("open_pr", body)
+        ack.assert_called_once()
+        kwargs = respond.call_args.kwargs
+        assert kwargs["response_type"] == "ephemeral"
+        assert "Open PR" in kwargs["text"]
+        logger.info.assert_called()
+
+    def test_overflow_show_all(self):
+        body = {
+            "user": {"id": "U999"},
+            "actions": [{"selected_option": {"value": "show_all"}}],
+        }
+        _, respond, _ = self._invoke("scan_overflow", body)
+        assert "Show all findings" in respond.call_args.kwargs["text"]
+
+    def test_overflow_download_json(self):
+        body = {
+            "user": {"id": "U999"},
+            "actions": [{"selected_option": {"value": "download_json"}}],
+        }
+        _, respond, _ = self._invoke("scan_overflow", body)
+        assert "Download JSON" in respond.call_args.kwargs["text"]

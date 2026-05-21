@@ -21,6 +21,7 @@ if str(_SRC) not in sys.path:
 
 from slack_bolt import App
 
+from .handlers import actions as action_handlers
 from .handlers import scan as scan_handler
 
 if TYPE_CHECKING:
@@ -58,5 +59,6 @@ def make_app(config: "WhisperConfig") -> App:
     app._whisper_config = config  # type: ignore[attr-defined]
 
     scan_handler.register(app)
+    action_handlers.register(app)
 
     return app
