@@ -18,7 +18,8 @@ import json
 import sys
 
 from patterns import discover_patterns
-from patterns.base import Finding, RiskTier
+from patterns.base import Finding
+from presenters import JSONPresenter, ScanResult, TextPresenter
 
 
 def get_pattern_by_id(pattern_id: str) -> type | None:
@@ -33,26 +34,6 @@ def get_pattern_by_id(pattern_id: str) -> type | None:
 def get_all_patterns() -> list[type]:
     """Get all discovered pattern classes."""
     return discover_patterns()
-
-
-def format_finding(finding: Finding, verbose: bool = False) -> str:
-    """Format a finding for display."""
-    lines = [
-        f"\n  📍 {finding.resource_type}: {finding.resource_id}",
-        f"     Region: {finding.region}",
-        f"     Monthly Impact: ${finding.monthly_impact_usd:.2f}",
-        f"     Risk: {finding.risk_tier.value.upper()}  (confidence {finding.confidence:.0%})",
-        f"     Summary: {finding.summary}",
-    ]
-    if finding.safe_to_fix:
-        lines.append("     ✅ Safe to auto-fix")
-        if finding.fix_command:
-            lines.append(f"     Fix: {finding.fix_command}")
-    else:
-        lines.append("     ⚠️  Manual review required")
-    if verbose and finding.metadata:
-        lines.append(f"     Metadata: {json.dumps(finding.metadata, indent=2)}")
-    return "\n".join(lines)
 
 
 def cmd_scan(args):
@@ -73,91 +54,36 @@ def cmd_scan(args):
         print("No patterns found. Check the src/patterns/ directory.", file=sys.stderr)
         sys.exit(1)
 
-    # Collect results
-    all_findings = []
-    pattern_results = []
+    all_findings: list[Finding] = []
+    pattern_errors: dict[str, str] = {}
 
     for pattern_class in patterns_to_run:
         pattern = pattern_class()
         if args.verbose:
-            print(f"\n🔍 Scanning with {pattern.NAME} (ID: {pattern.PATTERN_ID})...")
-
+            print(f"🔍 Scanning with {pattern.NAME} (ID: {pattern.PATTERN_ID})...",
+                  file=sys.stderr)
         try:
             findings = pattern.scan(regions=args.regions)
-            pattern_results.append({
-                "pattern_id": pattern.PATTERN_ID,
-                "name": pattern.NAME,
-                "description": pattern.DESCRIPTION,
-                "findings": [f.to_dict() for f in findings],
-                "total_monthly_waste": sum(f.monthly_impact_usd for f in findings),
-                "finding_count": len(findings)
-            })
             all_findings.extend(findings)
         except Exception as e:
+            pattern_errors[pattern.PATTERN_ID] = str(e)
             if args.verbose:
                 import traceback
                 traceback.print_exc()
-            pattern_results.append({
-                "pattern_id": pattern.PATTERN_ID,
-                "name": pattern.NAME,
-                "error": str(e),
-                "findings": [],
-                "total_monthly_waste": 0,
-                "finding_count": 0
-            })
 
-    # Output results
-    total_waste = sum(f.monthly_impact_usd for f in all_findings)
+    result = ScanResult.from_findings(
+        all_findings,
+        metadata={"pattern_errors": pattern_errors} if pattern_errors else {},
+    )
 
     if args.json:
-        output = {
-            "patterns_scanned": len(patterns_to_run),
-            "total_findings": len(all_findings),
-            "total_monthly_waste": round(total_waste, 2),
-            "patterns": pattern_results
-        }
-        print(json.dumps(output, indent=2))
+        print(JSONPresenter().render_scan(result, verbose=args.verbose))
     else:
-        # Human readable output
-        print("\n" + "=" * 60)
-        print("AWS Bill Whisperer - Scan Results")
-        print("=" * 60)
-
-        for pattern_data in pattern_results:
-            print(f"\n🔹 {pattern_data['name']} (ID: {pattern_data['pattern_id']})")
-            print(f"   {pattern_data['description']}")
-
-            if "error" in pattern_data:
-                print(f"   ❌ ERROR: {pattern_data['error']}")
-                continue
-
-            findings = pattern_data['findings']
-            if not findings:
-                print("   ✅ No issues found")
-                continue
-
-            print(f"   Found {len(findings)} issue(s), monthly waste: ${pattern_data['total_monthly_waste']:.2f}")
-            for f in findings:
-                finding_obj = Finding(
-                    pattern_id=f.get('pattern_id', ''),
-                    resource_id=f['resource_id'],
-                    resource_type=f['resource_type'],
-                    region=f['region'],
-                    monthly_impact_usd=f['monthly_impact_usd'],
-                    summary=f['summary'],
-                    risk_tier=RiskTier(f['risk_tier']),
-                    confidence=f.get('confidence', 0.8),
-                    safe_to_fix=f['safe_to_fix'],
-                    fix_command=f.get('fix_command'),
-                    evidence=f.get('evidence', {}),
-                    metadata=f.get('metadata', {}),
-                )
-                print(format_finding(finding_obj, args.verbose))
-
-        print("\n" + "=" * 60)
-        print(f"TOTAL MONTHLY WASTE: ${total_waste:.2f}")
-        print(f"TOTAL ANNUAL WASTE: ${total_waste * 12:.2f}")
-        print("=" * 60)
+        print(TextPresenter().render_scan(result, verbose=args.verbose))
+        if pattern_errors:
+            print("\nPattern errors:", file=sys.stderr)
+            for pid, msg in pattern_errors.items():
+                print(f"  ❌ {pid}: {msg}", file=sys.stderr)
 
 
 def cmd_fix(args):
