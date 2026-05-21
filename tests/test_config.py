@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -206,6 +206,58 @@ class TestDoctorChecks:
         slack = [c for c in checks if c.capability == "slack"]
         assert len(slack) == 1
         assert not slack[0].ok  # tokens unset by default
+
+    def test_slack_skips_network_when_verify_off(self, tmp_path: Path):
+        cfg = load_config(
+            env={"SLACK_BOT_TOKEN": "xoxb-test",
+                 "SLACK_SIGNING_SECRET": "sig"},
+            config_path=tmp_path / "missing.toml",
+        )
+        cfg.prompt_log_path = str(tmp_path / "prompts.log")
+        with patch("boto3.Session", new=self._stub_session(True)):
+            checks = run_checks(cfg, verify_slack=False)
+        slack = next(c for c in checks if c.capability == "slack")
+        assert slack.ok
+        assert "skipped" in slack.message
+
+    def test_slack_auth_test_invoked_when_tokens_set(self, tmp_path: Path):
+        cfg = load_config(
+            env={"SLACK_BOT_TOKEN": "xoxb-test",
+                 "SLACK_SIGNING_SECRET": "sig"},
+            config_path=tmp_path / "missing.toml",
+        )
+        cfg.prompt_log_path = str(tmp_path / "prompts.log")
+
+        fake_client = MagicMock()
+        fake_client.auth_test.return_value = {"team": "Acme", "user": "whisper"}
+        with patch("boto3.Session", new=self._stub_session(True)), \
+             patch("slack_sdk.WebClient", return_value=fake_client):
+            checks = run_checks(cfg, verify_slack=True)
+        slack = next(c for c in checks if c.capability == "slack")
+        assert slack.ok
+        assert "whisper@Acme" in slack.message
+        fake_client.auth_test.assert_called_once()
+
+    def test_slack_auth_test_failure_surfaces(self, tmp_path: Path):
+        from slack_sdk.errors import SlackApiError
+
+        cfg = load_config(
+            env={"SLACK_BOT_TOKEN": "xoxb-test",
+                 "SLACK_SIGNING_SECRET": "sig"},
+            config_path=tmp_path / "missing.toml",
+        )
+        cfg.prompt_log_path = str(tmp_path / "prompts.log")
+
+        fake_client = MagicMock()
+        fake_client.auth_test.side_effect = SlackApiError(
+            "invalid_auth", response={"error": "invalid_auth"}
+        )
+        with patch("boto3.Session", new=self._stub_session(True)), \
+             patch("slack_sdk.WebClient", return_value=fake_client):
+            checks = run_checks(cfg, verify_slack=True)
+        slack = next(c for c in checks if c.capability == "slack")
+        assert not slack.ok
+        assert "invalid_auth" in slack.message
 
     def test_invalid_choice_flagged(self, tmp_path: Path):
         cfg = WhisperConfig(llm_backend="grok")

@@ -291,18 +291,26 @@ def _check_llm(cfg: WhisperConfig) -> list[CheckResult]:
     return results
 
 
-def _check_slack(cfg: WhisperConfig) -> list[CheckResult]:
+def _check_slack(cfg: WhisperConfig, *, verify_token: bool = True) -> list[CheckResult]:
+    """Verify Slack credentials. When verify_token=True and a bot token is
+    present, performs a real auth.test against Slack (one HTTP request)."""
     results: list[CheckResult] = []
     has_app = bool(cfg.slack_bot_token and cfg.slack_signing_secret)
-    results.append(CheckResult(
-        capability="slack",
-        ok=has_app,
-        message=(
-            "bot token and signing secret set"
-            if has_app
-            else "SLACK_BOT_TOKEN and/or SLACK_SIGNING_SECRET not set"
-        ),
-    ))
+    if not has_app:
+        results.append(CheckResult(
+            capability="slack",
+            ok=False,
+            message="SLACK_BOT_TOKEN and/or SLACK_SIGNING_SECRET not set",
+        ))
+    elif not verify_token:
+        results.append(CheckResult(
+            capability="slack",
+            ok=True,
+            message="bot token and signing secret set (auth.test skipped)",
+        ))
+    else:
+        results.append(_slack_auth_test(cfg))
+
     if cfg.slack_webhook:
         results.append(CheckResult(
             capability="slack-webhook",
@@ -310,6 +318,46 @@ def _check_slack(cfg: WhisperConfig) -> list[CheckResult]:
             message="incoming-webhook URL configured (legacy path)",
         ))
     return results
+
+
+def _slack_auth_test(cfg: WhisperConfig) -> CheckResult:
+    """Call Slack's auth.test to confirm the bot token actually works.
+
+    Lazy-imports slack_sdk so the doctor still loads if it isn't installed
+    (it always is in practice — slack-bolt depends on it).
+    """
+    try:
+        from slack_sdk import WebClient
+        from slack_sdk.errors import SlackApiError
+    except ImportError:  # pragma: no cover — slack-bolt always brings slack-sdk
+        return CheckResult(
+            capability="slack",
+            ok=False,
+            message="slack_sdk not installed (pip install slack-bolt)",
+        )
+
+    try:
+        resp = WebClient(token=cfg.slack_bot_token).auth_test()
+    except SlackApiError as e:
+        return CheckResult(
+            capability="slack",
+            ok=False,
+            message=f"auth.test failed: {e.response.get('error', e)}",
+        )
+    except Exception as e:  # network errors, etc.
+        return CheckResult(
+            capability="slack",
+            ok=False,
+            message=f"auth.test errored: {e}",
+        )
+
+    team = resp.get("team", "?")
+    user = resp.get("user", "?")
+    return CheckResult(
+        capability="slack",
+        ok=True,
+        message=f"authenticated as {user}@{team}",
+    )
 
 
 def _check_prompt_log(cfg: WhisperConfig) -> CheckResult:
@@ -328,13 +376,17 @@ def _check_prompt_log(cfg: WhisperConfig) -> CheckResult:
         return CheckResult(capability="prompt-log", ok=False, message=str(e))
 
 
-def run_checks(cfg: WhisperConfig) -> list[CheckResult]:
-    """Run every doctor check. Order matters for output readability."""
+def run_checks(cfg: WhisperConfig, *, verify_slack: bool = True) -> list[CheckResult]:
+    """Run every doctor check. Order matters for output readability.
+
+    `verify_slack=False` skips the network call to Slack's auth.test
+    (offline mode / fast CI).
+    """
     results: list[CheckResult] = []
     results.extend(_check_choice(cfg))
     results.append(_check_scan(cfg))
     results.extend(_check_llm(cfg))
-    results.extend(_check_slack(cfg))
+    results.extend(_check_slack(cfg, verify_token=verify_slack))
     results.append(_check_prompt_log(cfg))
     return results
 
