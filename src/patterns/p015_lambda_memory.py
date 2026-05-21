@@ -7,7 +7,7 @@ Many functions are left at default 1024MB when 128-256MB would suffice.
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class LambdaMemoryPattern(BasePattern):
@@ -16,6 +16,8 @@ class LambdaMemoryPattern(BasePattern):
     DESCRIPTION = "Lambda functions with memory configured higher than actual usage"
     COMPLEXITY = Complexity.MEDIUM
     SERVICES = ["lambda", "cloudwatch"]
+    CATEGORY = Category.COMPUTE
+    REQUIRED_IAM = ["lambda:ListFunctions", "lambda:GetFunction", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
     # Thresholds
     LOOKBACK_DAYS = 14
@@ -276,27 +278,48 @@ class LambdaMemoryPattern(BasePattern):
         # Cost (first 400,000 GB-seconds free, but we're looking at relative cost)
         return total_gb_seconds * self.PRICE_PER_GB_SECOND
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
-        """Apply memory optimization."""
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
+        if mode != RemediationMode.API_CALL:
+            return super().remediate(finding, mode)
         if not finding.safe_to_fix:
-            raise ValueError(f"Cannot safely fix {finding.resource_id}")
-
-        recommended_memory = finding.metadata.get("recommended_memory_mb")
-        function_name = finding.metadata.get("function_name")
-        region = finding.region
-
-        if dry_run:
-            print(f"[DRY RUN] Would update {function_name} memory to {recommended_memory}MB")
-            return True
-
-        try:
-            lambda_client = self.session.client("lambda", region_name=region)
-            lambda_client.update_function_configuration(
-                FunctionName=function_name,
-                MemorySize=recommended_memory
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=f"Cannot safely fix {finding.resource_id}",
             )
-            print(f"Updated {function_name} memory to {recommended_memory}MB")
-            return True
+        try:
+            """Apply memory optimization."""
+        
+
+            recommended_memory = finding.metadata.get("recommended_memory_mb")
+            function_name = finding.metadata.get("function_name")
+            region = finding.region
+
+
+            try:
+                lambda_client = self.session.client("lambda", region_name=region)
+                lambda_client.update_function_configuration(
+                    FunctionName=function_name,
+                    MemorySize=recommended_memory
+                )
+                print(f"Updated {function_name} memory to {recommended_memory}MB")
+            except Exception as e:
+                print(f"Error updating {function_name}: {e}")
+                return False
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=True,
+                message="updated Lambda memory",
+            )
         except Exception as e:
-            print(f"Error updating {function_name}: {e}")
-            return False
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=str(e),
+            )

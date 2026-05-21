@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p003_gp2_to_gp3 import GP2ToGP3Pattern
-from patterns.base import RiskTier
+from patterns.base import RiskTier, RemediationMode
 
 
 class TestGP2ToGP3Pattern:
@@ -207,10 +207,10 @@ class TestGP2ToGP3Pattern:
         )
         
         # WHEN
-        result = pattern.fix(finding, dry_run=True)
+        result = pattern.remediate(finding, RemediationMode.DRY_RUN)
         
         # THEN
-        assert result is True
+        assert result.success
         mock_session.client.assert_not_called()
 
     def test_fix_actual_migration(self):
@@ -243,10 +243,10 @@ class TestGP2ToGP3Pattern:
         )
         
         # WHEN
-        result = pattern.fix(finding, dry_run=False)
+        result = pattern.remediate(finding, RemediationMode.API_CALL)
         
         # THEN
-        assert result is True
+        assert result.success
         mock_session.client.assert_called_with('ec2', region_name='us-west-2')
         mock_ec2.modify_volume.assert_called_with(
             VolumeId='vol-migrate',
@@ -276,9 +276,12 @@ class TestGP2ToGP3Pattern:
             fix_command='test'
         )
         
-        # WHEN/THEN
-        with pytest.raises(ValueError, match="not marked safe to fix"):
-            pattern.fix(finding, dry_run=False)
+        # WHEN
+        result = pattern.remediate(finding, RemediationMode.API_CALL)
+
+        # THEN
+        assert not result.success
+        assert "not marked safe to fix" in result.message
 
     def test_handles_api_error_gracefully(self):
         """

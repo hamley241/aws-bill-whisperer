@@ -5,7 +5,7 @@ Detects EBS snapshots older than a threshold (default 90 days) that may no longe
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class OldSnapshotsPattern(BasePattern):
@@ -14,6 +14,8 @@ class OldSnapshotsPattern(BasePattern):
     DESCRIPTION = "EBS snapshots older than threshold that may no longer be needed"
     COMPLEXITY = Complexity.EASY
     SERVICES = ["ec2"]
+    CATEGORY = Category.STORAGE
+    REQUIRED_IAM = ["ec2:DescribeSnapshots", "ec2:DescribeImages", "ec2:DescribeRegions"]
 
     # Snapshot storage cost per GB per month (approximate)
     SNAPSHOT_COST_PER_GB = 0.05
@@ -109,15 +111,36 @@ class OldSnapshotsPattern(BasePattern):
 
         return self._findings
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
+        if mode != RemediationMode.API_CALL:
+            return super().remediate(finding, mode)
         if not finding.safe_to_fix:
-            raise ValueError(f"Snapshot {finding.resource_id} is attached to AMI - unsafe to delete")
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=f"Snapshot {finding.resource_id} is attached to AMI - unsafe to delete",
+            )
+        try:
+        
 
-        if dry_run:
-            print(f"[DRY RUN] Would delete snapshot {finding.resource_id}")
-            return True
 
-        ec2 = self.session.client('ec2', region_name=finding.region)
-        ec2.delete_snapshot(SnapshotId=finding.resource_id)
-        print(f"Deleted snapshot {finding.resource_id}")
-        return True
+            ec2 = self.session.client('ec2', region_name=finding.region)
+            ec2.delete_snapshot(SnapshotId=finding.resource_id)
+            print(f"Deleted snapshot {finding.resource_id}")
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=True,
+                message="deleted snapshot",
+            )
+        except Exception as e:
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=str(e),
+            )

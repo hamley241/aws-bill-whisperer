@@ -4,7 +4,7 @@ Detects EC2 instances with <5% average CPU utilization over 14 days
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class IdleEC2Pattern(BasePattern):
@@ -13,6 +13,8 @@ class IdleEC2Pattern(BasePattern):
     DESCRIPTION = "EC2 instances with <5% CPU average over 14 days (candidate for stopping or rightsizing)"
     COMPLEXITY = Complexity.MEDIUM
     SERVICES = ["ec2", "cloudwatch"]
+    CATEGORY = Category.COMPUTE
+    REQUIRED_IAM = ["ec2:DescribeInstances", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
     # CPU threshold for idle
     CPU_THRESHOLD = 5.0  # 5% CPU

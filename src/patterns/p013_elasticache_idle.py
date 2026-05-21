@@ -15,7 +15,7 @@ Common waste patterns:
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class ElastiCacheIdlePattern(BasePattern):
@@ -24,6 +24,8 @@ class ElastiCacheIdlePattern(BasePattern):
     DESCRIPTION = "ElastiCache clusters with zero connections (paying for unused cache)"
     COMPLEXITY = Complexity.MEDIUM
     SERVICES = ["elasticache", "cloudwatch"]
+    CATEGORY = Category.DATABASE
+    REQUIRED_IAM = ["elasticache:DescribeCacheClusters", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
     # Lookback period for connection metrics
     LOOKBACK_DAYS = 7
@@ -307,31 +309,50 @@ class ElastiCacheIdlePattern(BasePattern):
         except Exception:
             return 0
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
-        """Apply fix for idle ElastiCache clusters."""
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
+        if mode != RemediationMode.API_CALL:
+            return super().remediate(finding, mode)
         if not finding.safe_to_fix:
-            raise ValueError(
-                f"Cannot safely fix {finding.resource_id}. "
-                f"Deleting cache clusters requires manual confirmation."
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=f"Cannot safely fix {finding.resource_id}. "
+                f"Deleting cache clusters requires manual confirmation.",
             )
-        
-        if dry_run:
-            print(f"[DRY RUN] Would execute: {finding.fix_command}")
-            return True
-        
-        elasticache = self.session.client("elasticache", region_name=finding.region)
-        
         try:
-            if "Redis" in finding.resource_type:
-                elasticache.delete_replication_group(
-                    ReplicationGroupId=finding.resource_id,
-                    RetainPrimaryCluster=False
-                )
-            else:  # Memcached
-                elasticache.delete_cache_cluster(
-                    CacheClusterId=finding.resource_id
-                )
-            return True
+            """Apply fix for idle ElastiCache clusters."""
+        
+        
+        
+            elasticache = self.session.client("elasticache", region_name=finding.region)
+        
+            try:
+                if "Redis" in finding.resource_type:
+                    elasticache.delete_replication_group(
+                        ReplicationGroupId=finding.resource_id,
+                        RetainPrimaryCluster=False
+                    )
+                else:  # Memcached
+                    elasticache.delete_cache_cluster(
+                        CacheClusterId=finding.resource_id
+                    )
+            except Exception as e:
+                print(f"Error deleting {finding.resource_id}: {e}")
+                return False
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=True,
+                message="deleted cache cluster",
+            )
         except Exception as e:
-            print(f"Error deleting {finding.resource_id}: {e}")
-            return False
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=str(e),
+            )

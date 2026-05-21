@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, 'src')
 
 from patterns.p006_nat_gateway import NatGatewayOptimizationPattern
-from patterns.base import RiskTier
+from patterns.base import RiskTier, RemediationMode
 
 
 class TestNatGatewayOptimizationPattern:
@@ -434,9 +434,13 @@ class TestNatGatewayOptimizationPattern:
             fix_command=None
         )
         
-        # WHEN/THEN
-        with pytest.raises(NotImplementedError, match="manual review and planning"):
-            pattern.fix(finding)
+        # WHEN — NAT Gateway optimization is documented as manual-intervention
+        # only; remediate() returns a failed RemediationResult rather than raising.
+        result = pattern.remediate(finding, RemediationMode.API_CALL)
+
+        # THEN
+        assert not result.success
+        assert "not supported" in result.message
 
     def test_handles_api_error_gracefully(self):
         """

@@ -13,7 +13,7 @@ Common waste patterns:
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class SageMakerIdlePattern(BasePattern):
@@ -22,6 +22,8 @@ class SageMakerIdlePattern(BasePattern):
     DESCRIPTION = "SageMaker endpoints/notebooks with zero usage (expensive to leave running)"
     COMPLEXITY = Complexity.MEDIUM
     SERVICES = ["sagemaker", "cloudwatch"]
+    CATEGORY = Category.ML
+    REQUIRED_IAM = ["sagemaker:ListEndpoints", "sagemaker:ListNotebookInstances", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
     # Lookback period for usage metrics
     LOOKBACK_DAYS = 7
@@ -320,26 +322,45 @@ class SageMakerIdlePattern(BasePattern):
         # Convert to monthly (24 hours × 30 days)
         return total_hourly * 24 * 30
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
-        """Apply fix for idle SageMaker resources."""
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
+        if mode != RemediationMode.API_CALL:
+            return super().remediate(finding, mode)
         if not finding.safe_to_fix:
-            raise ValueError(
-                f"Cannot safely fix {finding.resource_id}. "
-                f"Deleting/stopping SageMaker resources requires manual confirmation."
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=f"Cannot safely fix {finding.resource_id}. "
+                f"Deleting/stopping SageMaker resources requires manual confirmation.",
             )
-        
-        if dry_run:
-            print(f"[DRY RUN] Would execute: {finding.fix_command}")
-            return True
-        
-        sagemaker = self.session.client("sagemaker", region_name=finding.region)
-        
         try:
-            if finding.resource_type == "SageMaker Endpoint":
-                sagemaker.delete_endpoint(EndpointName=finding.resource_id)
-            elif finding.resource_type == "SageMaker Notebook Instance":
-                sagemaker.stop_notebook_instance(NotebookInstanceName=finding.resource_id)
-            return True
+            """Apply fix for idle SageMaker resources."""
+        
+        
+        
+            sagemaker = self.session.client("sagemaker", region_name=finding.region)
+        
+            try:
+                if finding.resource_type == "SageMaker Endpoint":
+                    sagemaker.delete_endpoint(EndpointName=finding.resource_id)
+                elif finding.resource_type == "SageMaker Notebook Instance":
+                    sagemaker.stop_notebook_instance(NotebookInstanceName=finding.resource_id)
+            except Exception as e:
+                print(f"Error fixing {finding.resource_id}: {e}")
+                return False
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=True,
+                message="stopped/deleted SageMaker resource",
+            )
         except Exception as e:
-            print(f"Error fixing {finding.resource_id}: {e}")
-            return False
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=str(e),
+            )

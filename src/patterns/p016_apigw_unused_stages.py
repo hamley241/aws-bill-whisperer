@@ -7,7 +7,7 @@ other features. Forgotten dev/test stages accumulate charges.
 """
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class APIGWUnusedStagesPattern(BasePattern):
@@ -16,6 +16,8 @@ class APIGWUnusedStagesPattern(BasePattern):
     DESCRIPTION = "API Gateway stages with zero requests (forgotten dev/test deployments)"
     COMPLEXITY = Complexity.EASY
     SERVICES = ["apigateway", "apigatewayv2", "cloudwatch"]
+    CATEGORY = Category.NETWORK
+    REQUIRED_IAM = ["apigateway:GET", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
     # Thresholds
     LOOKBACK_DAYS = 30  # Longer lookback for API stages

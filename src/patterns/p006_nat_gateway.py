@@ -5,7 +5,7 @@ Detects NAT Gateways with high data transfer costs and suggests alternatives
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class NatGatewayOptimizationPattern(BasePattern):
@@ -14,6 +14,8 @@ class NatGatewayOptimizationPattern(BasePattern):
     DESCRIPTION = "NAT Gateways with expensive data transfer that could be optimized"
     COMPLEXITY = Complexity.MEDIUM
     SERVICES = ["ec2", "cloudwatch"]
+    CATEGORY = Category.NETWORK
+    REQUIRED_IAM = ["ec2:DescribeNatGateways", "ce:GetCostAndUsage", "ec2:DescribeRegions"]
 
     # NAT Gateway pricing (approximate, varies by region)
     NAT_HOURLY_COST = 0.045  # $0.045/hour
@@ -158,10 +160,3 @@ class NatGatewayOptimizationPattern(BasePattern):
             print(f"Error getting CloudWatch metrics for NAT Gateway {nat_gw_id}: {e}")
             return 0.0
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
-        # NAT Gateway optimization requires manual intervention
-        # Cannot be automatically fixed due to network dependencies
-        raise NotImplementedError(
-            "NAT Gateway optimization requires manual review and planning. "
-            "Consider VPC endpoints, NAT instances, or traffic pattern analysis."
-        )

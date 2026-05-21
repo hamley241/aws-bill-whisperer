@@ -7,7 +7,7 @@ Detects Secrets Manager secrets that are:
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class SecretsManagerPattern(BasePattern):
@@ -16,6 +16,8 @@ class SecretsManagerPattern(BasePattern):
     DESCRIPTION = "Secrets Manager secrets not accessed in 90+ days or without rotation"
     COMPLEXITY = Complexity.EASY
     SERVICES = ["secretsmanager"]
+    CATEGORY = Category.SECURITY
+    REQUIRED_IAM = ["secretsmanager:ListSecrets", "secretsmanager:DescribeSecret", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
     # Pricing
     SECRET_PRICE_PER_MONTH = 0.40  # $0.40 per secret per month
@@ -148,27 +150,47 @@ class SecretsManagerPattern(BasePattern):
         except Exception as e:
             print(f"Error analyzing secret {secret_entry.get('Name', 'unknown')}: {e}")
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
-        """Delete an unused secret with recovery window."""
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
+        if mode != RemediationMode.API_CALL:
+            return super().remediate(finding, mode)
         if not finding.safe_to_fix:
-            raise ValueError(f"Secret {finding.resource_id} is not marked safe to delete")
-
-        if dry_run:
-            print(f"[DRY RUN] Would schedule deletion for secret {finding.resource_id} "
-                  f"with 30-day recovery window")
-            return True
-
-        secretsmanager = self.session.client('secretsmanager', region_name=finding.region)
-
-        try:
-            # Schedule deletion with recovery window (can be recovered within 30 days)
-            secretsmanager.delete_secret(
-                SecretId=finding.resource_id,
-                RecoveryWindowInDays=30
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=f"Secret {finding.resource_id} is not marked safe to delete",
             )
-            print(f"Scheduled deletion for secret {finding.resource_id} "
-                  f"(recovery possible for 30 days)")
-            return True
+        try:
+            """Delete an unused secret with recovery window."""
+        
+
+
+            secretsmanager = self.session.client('secretsmanager', region_name=finding.region)
+
+            try:
+                # Schedule deletion with recovery window (can be recovered within 30 days)
+                secretsmanager.delete_secret(
+                    SecretId=finding.resource_id,
+                    RecoveryWindowInDays=30
+                )
+                print(f"Scheduled deletion for secret {finding.resource_id} "
+                      f"(recovery possible for 30 days)")
+            except Exception as e:
+                print(f"Error deleting secret {finding.resource_id}: {e}")
+                return False
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=True,
+                message="scheduled secret deletion (30-day recovery)",
+            )
         except Exception as e:
-            print(f"Error deleting secret {finding.resource_id}: {e}")
-            return False
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=str(e),
+            )

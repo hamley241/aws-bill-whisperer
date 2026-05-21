@@ -5,7 +5,7 @@ Detects EBS volumes in 'available' state (not attached to any instance)
 
 from datetime import datetime, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class UnattachedEBSPattern(BasePattern):
@@ -14,6 +14,8 @@ class UnattachedEBSPattern(BasePattern):
     DESCRIPTION = "EBS volumes not attached to any EC2 instance"
     COMPLEXITY = Complexity.EASY
     SERVICES = ["ec2"]
+    CATEGORY = Category.STORAGE
+    REQUIRED_IAM = ["ec2:DescribeVolumes", "ec2:DescribeSnapshots", "ec2:DescribeRegions"]
 
     # Pricing (approximate, varies by region)
     PRICE_PER_GB = {
@@ -93,15 +95,36 @@ class UnattachedEBSPattern(BasePattern):
 
         return self._findings
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
+        if mode != RemediationMode.API_CALL:
+            return super().remediate(finding, mode)
         if not finding.safe_to_fix:
-            raise ValueError(f"Volume {finding.resource_id} has no snapshot - unsafe to delete")
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=f"Volume {finding.resource_id} has no snapshot - unsafe to delete",
+            )
+        try:
+        
 
-        if dry_run:
-            print(f"[DRY RUN] Would delete volume {finding.resource_id}")
-            return True
 
-        ec2 = self.session.client('ec2', region_name=finding.region)
-        ec2.delete_volume(VolumeId=finding.resource_id)
-        print(f"Deleted volume {finding.resource_id}")
-        return True
+            ec2 = self.session.client('ec2', region_name=finding.region)
+            ec2.delete_volume(VolumeId=finding.resource_id)
+            print(f"Deleted volume {finding.resource_id}")
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=True,
+                message="deleted volume",
+            )
+        except Exception as e:
+            return RemediationResult(
+                finding_id=finding.id,
+                pattern_id=self.PATTERN_ID,
+                mode=mode,
+                success=False,
+                message=str(e),
+            )

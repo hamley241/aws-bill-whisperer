@@ -7,7 +7,7 @@ Each unique dimension combination is a separate metric, billed at $0.30/metric/m
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class CloudWatchMetricsPattern(BasePattern):
@@ -16,6 +16,8 @@ class CloudWatchMetricsPattern(BasePattern):
     DESCRIPTION = "CloudWatch custom metrics with dimension explosions causing high costs"
     COMPLEXITY = Complexity.MEDIUM
     SERVICES = ["cloudwatch"]
+    CATEGORY = Category.MONITORING
+    REQUIRED_IAM = ["cloudwatch:ListMetrics", "ec2:DescribeRegions"]
 
     # Pricing
     METRIC_PRICE_PER_MONTH = 0.30  # First 10,000 metrics

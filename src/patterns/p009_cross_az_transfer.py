@@ -6,7 +6,7 @@ Cross-AZ data transfer is the "silent killer" of AWS bills at $0.01/GB each way.
 
 from datetime import datetime, timedelta, timezone
 
-from .base import BasePattern, Complexity, Finding, RiskTier
+from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
 
 
 class CrossAZTransferPattern(BasePattern):
@@ -15,6 +15,8 @@ class CrossAZTransferPattern(BasePattern):
     DESCRIPTION = "Resources with high cross-AZ data transfer costs"
     COMPLEXITY = Complexity.HARD
     SERVICES = ["ec2", "rds", "elasticache", "cloudwatch"]
+    CATEGORY = Category.NETWORK
+    REQUIRED_IAM = ["ce:GetCostAndUsage", "ec2:DescribeRegions"]
 
     # Cross-AZ pricing
     CROSS_AZ_COST_PER_GB = 0.01  # $0.01/GB each direction (so $0.02 round trip)
@@ -357,13 +359,3 @@ class CrossAZTransferPattern(BasePattern):
         except Exception:
             return 0.0
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
-        """
-        Cross-AZ optimization requires architectural changes.
-        Cannot be auto-fixed.
-        """
-        raise NotImplementedError(
-            "Cross-AZ data transfer optimization requires architectural review. "
-            "Consider AZ-aware routing, colocation strategies, or VPC endpoints "
-            "based on the specific resource type and traffic patterns."
-        )
