@@ -1,0 +1,31 @@
+# mixed adversarial — valid + bad emissions in the same response.
+# The valid step must survive; the bad emissions must be dropped.
+
+- type: structural_valid_json
+
+- type: status
+  equals: ok
+
+- type: steps_count
+  equals: 1
+
+- type: dropped_steps_count
+  equals: 2
+
+- type: parse_retry_count
+  equals: 0
+
+- type: dropped_step_reasons
+  reasons:
+    - unknown_finding_id
+    - unsupported_mode
+
+- type: total_impact_within_input_sum
+
+- type: order_rank_unique
+
+# The tf-managed finding must be in the surviving plan.
+- type: includes_finding
+  finding_id_evidence:
+    terraform_managed: true
+

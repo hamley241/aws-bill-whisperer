@@ -1,0 +1,15 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Plan that lies about the dollar amount.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"11111111-1111-4111-8111-111111111111\",\n      \"suggested_mode\": \"pr\",\n      \"monthly_impact_usd\": 999.99,\n      \"rationale\": \"LLM invented a dollar figure.\",\n      \"order_rank\": 1\n    }\n  ]\n}"
+  ],
+  "metadata": {
+    "model": "hand-crafted-adversarial",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "kind": "adversarial",
+    "drop_reason_under_test": "monthly_impact_mismatch",
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v1",
+    "note": "Canonical value is 80.0; emitted is 999.99. Difference >> $0.01 tolerance, so validator step 4 drops with MONTHLY_IMPACT_MISMATCH."
+  }
+}

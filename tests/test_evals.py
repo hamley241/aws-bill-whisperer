@@ -22,8 +22,10 @@ from agent.evals.rubric import CheckResult, load_rubric, run_rubric
 from agent.evals.runner import (
     FIXTURES_DIR,
     EvalResult,
+    SuiteSummary,
     load_fixture,
     run_fixture,
+    summarize,
 )
 from agent.schemas import DroppedStep, PlanResult, PlanStep, new_plan_id
 from patterns.base import Finding, RiskTier
@@ -254,6 +256,61 @@ class TestRubricAssertions:
                        _plan(dropped=dropped), [])
         assert r[0].ok
 
+    def test_dropped_step_reasons_set_equality_pass(self):
+        dropped = [
+            DroppedStep(raw_emission={}, reason="unknown_finding_id", validator="v"),
+            DroppedStep(raw_emission={}, reason="unsupported_mode", validator="v"),
+        ]
+        r = run_rubric(
+            [{"type": "dropped_step_reasons",
+              "reasons": ["unknown_finding_id", "unsupported_mode"]}],
+            _plan(dropped=dropped), [],
+        )
+        assert r[0].ok
+
+    def test_dropped_step_reasons_extra_reason_fails(self):
+        dropped = [
+            DroppedStep(raw_emission={}, reason="unknown_finding_id", validator="v"),
+            DroppedStep(raw_emission={}, reason="unsupported_mode", validator="v"),
+        ]
+        r = run_rubric(
+            [{"type": "dropped_step_reasons",
+              "reasons": ["unknown_finding_id"]}],
+            _plan(dropped=dropped), [],
+        )
+        assert not r[0].ok
+        assert "extra" in r[0].detail
+
+    def test_dropped_step_reasons_missing_reason_fails(self):
+        dropped = [DroppedStep(raw_emission={}, reason="unknown_finding_id", validator="v")]
+        r = run_rubric(
+            [{"type": "dropped_step_reasons",
+              "reasons": ["unknown_finding_id", "monthly_impact_mismatch"]}],
+            _plan(dropped=dropped), [],
+        )
+        assert not r[0].ok
+        assert "missing" in r[0].detail
+
+    def test_dropped_step_reasons_collapses_duplicates(self):
+        # Two emissions dropped for the same reason produce one entry in
+        # the set — that's set-equality semantics, documented in the
+        # rubric handler. Multiplicity is asserted via dropped_steps_count.
+        dropped = [
+            DroppedStep(raw_emission={}, reason="schema_invalid", validator="v"),
+            DroppedStep(raw_emission={}, reason="schema_invalid", validator="v"),
+        ]
+        r = run_rubric(
+            [{"type": "dropped_step_reasons",
+              "reasons": ["schema_invalid"]}],
+            _plan(dropped=dropped), [],
+        )
+        assert r[0].ok
+
+    def test_dropped_step_reasons_missing_list_fails(self):
+        r = run_rubric([{"type": "dropped_step_reasons"}], _plan(), [])
+        assert not r[0].ok
+        assert "'reasons' list" in r[0].detail
+
     def test_unknown_assertion_type_fails(self):
         r = run_rubric([{"type": "definitely_not_a_real_check"}], _plan(), [])
         assert not r[0].ok
@@ -366,3 +423,170 @@ class TestReRecordSafety:
         body = json.loads((fix_dir / "recorded_response.json").read_text())
         assert len(body["responses"]) == 1
         assert body["metadata"]["provider"] == "scripted-live"
+
+
+# ---------------------------------------------------------------------------
+# Adversarial fixture replay — one assertion per DropReason
+# ---------------------------------------------------------------------------
+
+class TestAdversarialFixturesReplay:
+    """Each adversarial fixture is a single end-to-end safety claim:
+    a deliberately-broken LLM response must produce the documented
+    drop reason and a validation_failed plan. If one of these tests
+    fails, either the validator's behaviour drifted or the fixture
+    was edited away from its intent — both deserve review.
+    """
+
+    def test_unknown_finding_id_fixture_drops_one(self, monkeypatch):
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        r = run_fixture("adversarial_unknown_finding_id")
+        assert r.ok, [c for c in r.checks if not c.ok]
+        assert r.plan.status == "validation_failed"
+        assert len(r.plan.dropped_steps) == 1
+        assert r.plan.dropped_steps[0].reason == "unknown_finding_id"
+        assert r.plan.steps == []
+
+    def test_unsupported_mode_fixture_drops_one(self, monkeypatch):
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        r = run_fixture("adversarial_unsupported_mode")
+        assert r.ok, [c for c in r.checks if not c.ok]
+        assert r.plan.status == "validation_failed"
+        assert r.plan.dropped_steps[0].reason == "unsupported_mode"
+
+    def test_monthly_impact_missing_fixture_drops_one(self, monkeypatch):
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        r = run_fixture("adversarial_monthly_impact_missing")
+        assert r.ok, [c for c in r.checks if not c.ok]
+        assert r.plan.dropped_steps[0].reason == "monthly_impact_missing"
+
+    def test_monthly_impact_mismatch_fixture_drops_one(self, monkeypatch):
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        r = run_fixture("adversarial_monthly_impact_mismatch")
+        assert r.ok, [c for c in r.checks if not c.ok]
+        assert r.plan.dropped_steps[0].reason == "monthly_impact_mismatch"
+
+    def test_schema_invalid_fixture_drops_one(self, monkeypatch):
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        r = run_fixture("adversarial_schema_invalid")
+        assert r.ok, [c for c in r.checks if not c.ok]
+        assert r.plan.dropped_steps[0].reason == "schema_invalid"
+
+    def test_all_steps_dropped_yields_validation_failed(self, monkeypatch):
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        r = run_fixture("all_steps_dropped")
+        assert r.ok, [c for c in r.checks if not c.ok]
+        assert r.plan.status == "validation_failed"
+        assert r.plan.steps == []
+        assert len(r.plan.dropped_steps) == 3
+        reasons = {d.reason for d in r.plan.dropped_steps}
+        assert reasons == {
+            "unknown_finding_id",
+            "monthly_impact_mismatch",
+            "unsupported_mode",
+        }
+
+    def test_mixed_fixture_keeps_valid_and_drops_bad(self, monkeypatch):
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        r = run_fixture("mixed_valid_and_adversarial")
+        assert r.ok, [c for c in r.checks if not c.ok]
+        assert r.plan.status == "ok"
+        assert len(r.plan.steps) == 1
+        # Survivor must be the terraform-managed finding (only one that
+        # exposes PR mode in the modes resolver).
+        assert r.plan.steps[0].finding_id == "11111111-1111-4111-8111-111111111111"
+        assert r.plan.steps[0].suggested_mode == "pr"
+        assert len(r.plan.dropped_steps) == 2
+        reasons = {d.reason for d in r.plan.dropped_steps}
+        assert reasons == {"unknown_finding_id", "unsupported_mode"}
+
+
+# ---------------------------------------------------------------------------
+# Suite aggregator — parse_retry_count average and decision threshold
+# ---------------------------------------------------------------------------
+
+class TestSuiteSummary:
+    def _result(self, *, fixture: str = "x", ok_checks: bool = True,
+                parse_retry_count: int = 0, errors: list[str] | None = None) -> EvalResult:
+        return EvalResult(
+            fixture=fixture,
+            plan=_plan(parse_retry_count=parse_retry_count),
+            checks=[CheckResult("status", ok_checks, "ok" if ok_checks else "fail")],
+            parse_retry_count=parse_retry_count,
+            errors=errors or [],
+        )
+
+    def test_empty_results_returns_zero_average(self):
+        s = summarize([])
+        assert s.fixture_count == 0
+        assert s.parse_retry_average == 0.0
+        assert s.parse_retry_total == 0
+        assert s.all_passed  # vacuously
+
+    def test_average_across_clean_fixtures_is_zero(self):
+        s = summarize([self._result(), self._result(), self._result()])
+        assert s.fixture_count == 3
+        assert s.pass_count == 3
+        assert s.fail_count == 0
+        assert s.errored_fixtures == 0
+        assert s.parse_retry_total == 0
+        assert s.parse_retry_average == 0.0
+        assert s.all_passed
+
+    def test_average_with_one_retry_in_three(self):
+        s = summarize([
+            self._result(parse_retry_count=1),
+            self._result(),
+            self._result(),
+        ])
+        assert s.parse_retry_total == 1
+        assert s.parse_retry_average == pytest.approx(1 / 3)
+
+    def test_errored_fixture_excluded_from_average_divisor(self):
+        # An errored fixture contributes neither parse_retry nor to the
+        # divisor — including it would dilute or pad the rate. The
+        # all_passed property must be False because errors are present.
+        s = summarize([
+            self._result(parse_retry_count=1),
+            self._result(errors=["could not load fixture"]),
+        ])
+        assert s.errored_fixtures == 1
+        assert s.parse_retry_total == 1
+        assert s.parse_retry_average == 1.0  # 1 retry / 1 eligible fixture
+        assert not s.all_passed
+
+    def test_failed_check_counts_as_fail_not_error(self):
+        # ok_checks=False is a rubric failure, not an error.
+        s = summarize([self._result(ok_checks=False)])
+        assert s.pass_count == 0
+        assert s.fail_count == 1
+        assert s.errored_fixtures == 0
+        assert not s.all_passed
+
+
+class TestSuiteSummaryAgainstRealFixtures:
+    """The on-disk suite must satisfy the decision rule documented in
+    src/agent/evals/README.md. If a future fixture adds a deliberate
+    parse-retry-stress scenario without annotating the metric, this test
+    is the canary."""
+
+    def test_full_suite_parse_retry_average_below_threshold(self, monkeypatch):
+        from agent.evals.runner import PARSE_RETRY_THRESHOLD
+
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        scenarios = sorted(
+            p.name for p in FIXTURES_DIR.iterdir() if p.is_dir()
+        )
+        results = [run_fixture(s) for s in scenarios]
+        summary = summarize(results)
+        assert summary.all_passed, [
+            (r.fixture, [c for c in r.checks if not c.ok])
+            for r in results if not r.ok
+        ]
+        # Decision rule: average must be at or below threshold today.
+        # If this assertion ever fires, follow README.md and open an
+        # issue rather than relaxing the threshold.
+        assert summary.parse_retry_average <= PARSE_RETRY_THRESHOLD, (
+            f"parse_retry_average={summary.parse_retry_average:.4f} "
+            f"exceeds threshold={PARSE_RETRY_THRESHOLD}; see "
+            f"src/agent/evals/README.md"
+        )

@@ -1,0 +1,22 @@
+# adversarial: schema_invalid
+# Validator's shape check must drop emissions missing required keys.
+
+- type: status
+  equals: validation_failed
+
+- type: steps_count
+  equals: 0
+
+- type: dropped_steps_count
+  equals: 1
+
+- type: parse_retry_count
+  equals: 0
+
+- type: dropped_reason_present
+  reason: schema_invalid
+
+- type: dropped_step_reasons
+  reasons:
+    - schema_invalid
+

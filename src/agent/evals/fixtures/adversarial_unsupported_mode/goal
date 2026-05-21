@@ -1,0 +1,1 @@
+Adversarial test — the recorded response suggests api_call on a finding where the resolver does not expose api_call. Validator must drop with unsupported_mode.

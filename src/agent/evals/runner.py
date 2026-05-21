@@ -49,6 +49,12 @@ logger = logging.getLogger(__name__)
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
+# Decision threshold for the suite-wide parse_retry_count rate. Owned
+# by runner.py; the README and the canary test
+# (test_full_suite_parse_retry_average_below_threshold) both consume it
+# from here. If you bump this number, bump it ONLY here.
+PARSE_RETRY_THRESHOLD = 0.02
+
 
 # ---------------------------------------------------------------------------
 # Fixture loading
@@ -213,6 +219,59 @@ class EvalResult:
         return not self.errors and all(c.ok for c in self.checks)
 
 
+@dataclass
+class SuiteSummary:
+    """Aggregate stats across multiple fixtures.
+
+    `parse_retry_average` is the headline metric for whether the planner
+    is leaning on its repair retry too often. The decision rule (see
+    src/agent/evals/README.md): a rate above `PARSE_RETRY_THRESHOLD`
+    means open a follow-up issue recommending LLMClient
+    response_format="json" work; at or below the threshold means the
+    planner is parsing cleanly in steady state.
+
+    `errored_fixtures` counts fixtures that produced an EvalResult with
+    errors set — they're excluded from the parse_retry average because
+    a fixture that couldn't even run can't tell us anything about the
+    parse rate.
+    """
+    fixture_count: int
+    pass_count: int
+    fail_count: int
+    errored_fixtures: int
+    parse_retry_total: int
+    parse_retry_average: float
+
+    @property
+    def all_passed(self) -> bool:
+        return self.fail_count == 0 and self.errored_fixtures == 0
+
+
+def summarize(results: list[EvalResult]) -> SuiteSummary:
+    """Compute suite-wide stats. `results` may include errored runs."""
+    fixture_count = len(results)
+    pass_count = sum(1 for r in results if r.ok)
+    fail_count = fixture_count - pass_count
+    errored = sum(1 for r in results if r.errors)
+
+    # parse_retry stats come from the underlying plans; errored fixtures
+    # contribute zero and are not divisors. If every fixture errored we
+    # report 0.0 and let the caller see fixture_count==errored_fixtures.
+    eligible = [r for r in results if not r.errors]
+    parse_retry_total = sum(r.parse_retry_count for r in eligible)
+    parse_retry_average = (
+        parse_retry_total / len(eligible) if eligible else 0.0
+    )
+    return SuiteSummary(
+        fixture_count=fixture_count,
+        pass_count=pass_count,
+        fail_count=fail_count,
+        errored_fixtures=errored,
+        parse_retry_total=parse_retry_total,
+        parse_retry_average=parse_retry_average,
+    )
+
+
 def run_fixture(
     scenario: str | Path,
     *,
@@ -329,13 +388,15 @@ def main(argv: list[str] | None = None) -> int:
         print("no fixtures found in", FIXTURES_DIR, file=sys.stderr)
         return 1
 
-    overall_ok = True
+    results: list[EvalResult] = []
     for scenario in scenarios:
         result = run_fixture(scenario, re_record=args.re_record)
         _print_result(result)
-        if not result.ok:
-            overall_ok = False
-    return 0 if overall_ok else 1
+        results.append(result)
+
+    if len(results) > 1:
+        _print_suite_summary(summarize(results))
+    return 0 if all(r.ok for r in results) else 1
 
 
 def _all_scenarios() -> list[str]:
@@ -354,6 +415,22 @@ def _print_result(result: EvalResult) -> None:
         print(f"{line_marker} {c.assertion_type}: {c.detail}")
     for err in result.errors:
         print(f"  ! {err}")
+
+
+def _print_suite_summary(summary: SuiteSummary) -> None:
+    print()
+    print("=== suite summary ===")
+    print(f"fixtures: {summary.fixture_count}  "
+          f"pass: {summary.pass_count}  "
+          f"fail: {summary.fail_count}  "
+          f"errored: {summary.errored_fixtures}")
+    print(f"parse_retry_total:   {summary.parse_retry_total}")
+    print(f"parse_retry_average: {summary.parse_retry_average:.4f} "
+          f"(threshold {PARSE_RETRY_THRESHOLD:.2f} — "
+          f"see src/agent/evals/README.md)")
+    if summary.parse_retry_average > PARSE_RETRY_THRESHOLD:
+        print("  ! parse_retry rate exceeds threshold — investigate "
+              "LLMClient response_format='json' work.")
 
 
 if __name__ == "__main__":

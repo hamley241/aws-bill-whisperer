@@ -22,12 +22,14 @@ Record/replay rules:
 """
 
 from .rubric import CheckResult, load_rubric, run_rubric
-from .runner import EvalResult, run_fixture
+from .runner import EvalResult, SuiteSummary, run_fixture, summarize
 
 __all__ = [
     "CheckResult",
     "EvalResult",
+    "SuiteSummary",
     "load_rubric",
     "run_fixture",
     "run_rubric",
+    "summarize",
 ]

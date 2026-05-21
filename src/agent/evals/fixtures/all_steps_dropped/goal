@@ -1,0 +1,1 @@
+End-to-end adversarial test — every emission is broken in a different way. The planner must surface zero steps and status=validation_failed.
