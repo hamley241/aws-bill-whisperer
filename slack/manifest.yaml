@@ -1,0 +1,70 @@
+# AWS Bill Whisperer — Slack App manifest
+#
+# Paste this into https://api.slack.com/apps?new_app=1 → "From a manifest"
+# to create your own copy of the Whisper Slack app. There is no
+# vendor-hosted instance; this app lives in your workspace and talks to
+# your own infrastructure (per CLAUDE.md data sovereignty).
+#
+# After creating the app:
+#   1. Install it to your workspace and copy the Bot User OAuth Token
+#      (xoxb-...) → SLACK_BOT_TOKEN
+#   2. Open "Basic Information" and copy the Signing Secret
+#      → SLACK_SIGNING_SECRET
+#   3. Open "Socket Mode" (optional, for local dev) → enable, create an
+#      App-Level Token with the connections:write scope, copy it
+#      (xapp-...) → SLACK_APP_TOKEN
+#   4. Edit `request_url` below to point at your deployed webhook
+#      (API Gateway URL + /slack/events) and re-import.
+#
+# Then run `whisper-config doctor` to verify the install.
+
+display_information:
+  name: AWS Bill Whisperer
+  description: Conversational AWS cost optimization (open source, self-hosted)
+  background_color: "#0a3d62"
+  long_description: >
+    AWS Bill Whisperer scans your AWS account for cost waste and explains
+    findings in plain English right inside Slack. It runs entirely in your
+    own infrastructure — bills, resource metadata, and prompts never leave
+    your account. Type /whisper scan in any channel the app is added to.
+
+features:
+  bot_user:
+    display_name: Whisper
+    always_online: false
+
+  slash_commands:
+    - command: /whisper
+      description: AWS Bill Whisperer
+      usage_hint: scan
+      should_escape: false
+      # Replace with your deployed API Gateway URL before importing.
+      url: https://example.execute-api.us-east-1.amazonaws.com/prod/slack/events
+
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read   # see @whisper mentions
+      - channels:history    # read messages in public channels where the bot is added
+      - chat:write          # post messages
+      - chat:write.public   # post in public channels without explicit invite
+      - commands            # /whisper slash command
+      - groups:history      # read messages in private channels where the bot is added
+
+settings:
+  event_subscriptions:
+    # Replace with your deployed API Gateway URL before importing.
+    request_url: https://example.execute-api.us-east-1.amazonaws.com/prod/slack/events
+    bot_events:
+      - app_mention
+      - message.channels
+      - message.groups
+
+  interactivity:
+    is_enabled: true
+    # Replace with your deployed API Gateway URL before importing.
+    request_url: https://example.execute-api.us-east-1.amazonaws.com/prod/slack/events
+
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
