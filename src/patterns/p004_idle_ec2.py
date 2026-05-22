@@ -226,11 +226,37 @@ class IdleEC2Pattern(BasePattern):
         self._findings = []
 
         for region in regions:
+            # Each region emits a structured outcome event — success or
+            # failure — so log aggregators can distinguish "scanned
+            # cleanly, found nothing" from "scan exploded silently."
+            # The latter is the failure mode that hid the
+            # elasticloadbalancing boto3 client-name bug pre-merge. The
+            # broader return-type refactor (per-region status surfaced
+            # in scan()'s return value) is tracked in memory follow-up
+            # `project_silent_region_failure_logging` — it lands before
+            # the first paid-tier scheduled-scan PR.
             try:
-                self._findings.extend(self._scan_region(region))
-            except Exception:  # pragma: no cover — surface in caller
+                region_findings = self._scan_region(region)
+                self._findings.extend(region_findings)
+                logger.info(
+                    "p004 scan region complete",
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "ok",
+                        "finding_count": len(region_findings),
+                    },
+                )
+            except Exception as e:  # pragma: no cover — structured surface
                 logger.exception(
                     "p004 scan failed for region %s; continuing", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(e).__name__,
+                        "exception_message": str(e),
+                    },
                 )
                 continue
         return self._findings
@@ -466,9 +492,14 @@ class IdleEC2Pattern(BasePattern):
         # Belt-and-braces: the closed gate-name set must match what we
         # actually computed. If a future contributor adds a key here
         # without updating GATE_NAMES (or vice versa), bail loudly.
-        assert set(gates) == set(GATE_NAMES), (
-            "p004 gate set drifted from GATE_NAMES; update both together"
-        )
+        # NOTE: explicit raise rather than assert — assertions are stripped
+        # under `python -O`, and this invariant is load-bearing for
+        # safe_to_fix correctness in production.
+        if set(gates) != set(GATE_NAMES):
+            raise RuntimeError(
+                "p004 gate set drifted from GATE_NAMES; update both together. "
+                f"got={sorted(gates)} expected={sorted(GATE_NAMES)}"
+            )
         safe_to_fix = all(gates.values())
 
         # ----- cost -----
