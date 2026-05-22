@@ -1,0 +1,37 @@
+# p006 happy path: one NAT, one observed S3 candidate.
+# Expected: the planner cites the observed candidate with add_vpc_endpoint
+# followed by observe_and_reassess. Validators accept; no drops; no
+# hedging warnings (observed-tier rationales can use confident verbs).
+
+- type: structural_valid_json
+
+- type: status
+  equals: ok
+
+- type: parse_retry_count
+  equals: 0
+
+- type: dropped_steps_count
+  equals: 0
+
+- type: steps_count
+  equals: 1
+
+- type: total_impact_within_input_sum
+
+- type: order_rank_unique
+
+# api_call is forbidden for p006 in OSS this milestone.
+- type: never_recommends_mode
+  mode: api_call
+  for_finding_evidence: {}
+
+# pr is deferred — same reason.
+- type: never_recommends_mode
+  mode: pr
+  for_finding_evidence: {}
+
+# Warning-level: observed-tier rationales are allowed confident verbs,
+# so this should pass vacuously even when the plan uses "shows" /
+# "measured" — those words are only forbidden for INFERRED sub-actions.
+- type: rationale_hedges_inferred

@@ -1,0 +1,78 @@
+[
+  {
+    "id": "60000000-0006-4000-8000-000000000002",
+    "schema_version": "1",
+    "pattern_id": "006",
+    "resource_id": "nat-inferred-only",
+    "resource_type": "NAT Gateway",
+    "resource_arn": "arn:aws:ec2:us-east-1::natgateway/nat-inferred-only",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "monthly_impact_usd": 32.4,
+    "confidence": 0.6,
+    "risk_tier": "low",
+    "summary": "NAT Gateway nat-inferred-only — Flow Logs absent; only inferred candidates available.",
+    "explanation": null,
+    "fix_command": null,
+    "fix_pr": null,
+    "safe_to_fix": false,
+    "evidence": {
+      "nat_gateway": {
+        "nat_gateway_id": "nat-inferred-only",
+        "vpc_id": "vpc-dev",
+        "subnet_id": "subnet-public-d",
+        "create_time": "2025-12-01T00:00:00+00:00",
+        "age_days": 172,
+        "state": "available",
+        "tags": {"Env": "dev"}
+      },
+      "cost": {
+        "monthly_hours_cost_usd": 32.4,
+        "monthly_processing_cost_usd": 0.0,
+        "gb_processed_30d_bidirectional": 0.0,
+        "cost_source": "hourly_only",
+        "confidence": "low"
+      },
+      "topology": {
+        "private_subnets_using_nat": ["subnet-priv-d"],
+        "route_tables": [
+          {"rtb_id": "rtb-priv-d", "subnets": ["subnet-priv-d"], "default_route_target": "nat-inferred-only"}
+        ],
+        "affected_route_count": 1,
+        "existing_vpc_endpoints": []
+      },
+      "inferred": {
+        "endpoint_candidates": [
+          {
+            "candidate_id": "cand-gateway-s3",
+            "service": "s3",
+            "endpoint_type": "Gateway",
+            "evidence_tier": "inferred",
+            "supporting_observed_share": null,
+            "supporting_inference_reason": "service_endpoint_supported_by_aws",
+            "est_monthly_savings_usd": 0.0,
+            "blast_radius": "low",
+            "deterministic_command_hint": "aws ec2 create-vpc-endpoint --vpc-id vpc-dev --service-name com.amazonaws.us-east-1.s3 --route-table-ids rtb-priv-d --region us-east-1"
+          },
+          {
+            "candidate_id": "cand-gateway-ddb",
+            "service": "dynamodb",
+            "endpoint_type": "Gateway",
+            "evidence_tier": "inferred",
+            "supporting_observed_share": null,
+            "supporting_inference_reason": "service_endpoint_supported_by_aws",
+            "est_monthly_savings_usd": 0.0,
+            "blast_radius": "low",
+            "deterministic_command_hint": "aws ec2 create-vpc-endpoint --vpc-id vpc-dev --service-name com.amazonaws.us-east-1.dynamodb --route-table-ids rtb-priv-d --region us-east-1"
+          }
+        ]
+      },
+      "gates": {
+        "has_baseline_cost": true,
+        "has_any_candidate": true,
+        "observed_supports_top_candidate": false
+      }
+    },
+    "metadata": {}
+  }
+]

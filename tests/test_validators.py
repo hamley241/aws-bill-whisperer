@@ -336,3 +336,286 @@ class TestValidateSingleStep:
         assert not outcome.is_kept
         assert outcome.kept is None
         assert outcome.dropped is not None
+
+
+# ---------------------------------------------------------------------------
+# Sub-action validation (p006 — recommended_sequence)
+# ---------------------------------------------------------------------------
+
+def _nat_finding(
+    *,
+    candidates=None,
+    monthly_impact_usd=32.4,
+    pattern_id="006",
+) -> Finding:
+    if candidates is None:
+        candidates = [
+            {
+                "candidate_id": "cand-gateway-s3",
+                "service": "s3",
+                "endpoint_type": "Gateway",
+                "evidence_tier": "inferred",
+                "supporting_inference_reason": "service_endpoint_supported_by_aws",
+                "est_monthly_savings_usd": 0.0,
+                "blast_radius": "low",
+            },
+        ]
+    return Finding(
+        resource_id="nat-test",
+        resource_type="NAT Gateway",
+        region="us-east-1",
+        monthly_impact_usd=monthly_impact_usd,
+        summary="nat",
+        pattern_id=pattern_id,
+        risk_tier=RiskTier.MEDIUM,
+        evidence={
+            "cost": {"cost_source": "hourly_only"},
+            "inferred": {"endpoint_candidates": candidates},
+        },
+    )
+
+
+def _sub(**overrides) -> dict:
+    defaults = dict(
+        candidate_id="cand-gateway-s3",
+        action_kind="add_vpc_endpoint",
+        est_monthly_savings_usd=0.0,
+        evidence_tier="inferred",
+        rationale="candidate, may save",
+    )
+    defaults.update(overrides)
+    return defaults
+
+
+def _nat_raw(f: Finding, **overrides) -> dict:
+    """Top-level step raw emission for a NAT finding (mode dry_run by
+    default — exposed for both p001 and p006)."""
+    defaults = dict(
+        finding_id=f.id,
+        suggested_mode="dry_run",
+        monthly_impact_usd=f.monthly_impact_usd,
+        rationale="r",
+        order_rank=1,
+    )
+    defaults.update(overrides)
+    return defaults
+
+
+class TestSubActionValidation:
+    def test_unknown_candidate_id_drops_whole_step(self):
+        f = _nat_finding()
+        raw = _nat_raw(f, recommended_sequence=[
+            _sub(candidate_id="cand-ghost"),
+        ])
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert kept == []
+        assert len(dropped) == 1
+        assert dropped[0].reason == DropReason.UNKNOWN_CANDIDATE_ID.value
+        assert "cand-ghost" in dropped[0].detail
+
+    def test_invalid_action_kind_drops_whole_step(self):
+        f = _nat_finding()
+        raw = _nat_raw(f, recommended_sequence=[
+            _sub(action_kind="remove_nat"),  # not in ALLOWED_ACTION_KINDS
+        ])
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert kept == []
+        assert dropped[0].reason == DropReason.INVALID_ACTION_KIND.value
+        assert "remove_nat" in dropped[0].detail
+
+    def test_evidence_tier_mismatch_drops_whole_step(self):
+        # Candidate is inferred; LLM says observed.
+        f = _nat_finding()
+        raw = _nat_raw(f, recommended_sequence=[
+            _sub(evidence_tier="observed"),
+        ])
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert kept == []
+        assert dropped[0].reason == DropReason.EVIDENCE_TIER_MISMATCH.value
+
+    def test_candidate_savings_mismatch_drops_whole_step(self):
+        f = _nat_finding()
+        raw = _nat_raw(f, recommended_sequence=[
+            _sub(est_monthly_savings_usd=99.0),  # canonical is 0.0
+        ])
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert kept == []
+        assert dropped[0].reason == DropReason.CANDIDATE_SAVINGS_MISMATCH.value
+
+    def test_sum_cap_exceeded_drops_whole_step(self):
+        candidates = [
+            {
+                "candidate_id": "cand-gateway-s3", "service": "s3",
+                "endpoint_type": "Gateway", "evidence_tier": "observed",
+                "est_monthly_savings_usd": 30.0, "blast_radius": "low",
+            },
+            {
+                "candidate_id": "cand-gateway-ddb", "service": "dynamodb",
+                "endpoint_type": "Gateway", "evidence_tier": "observed",
+                "est_monthly_savings_usd": 30.0, "blast_radius": "low",
+            },
+        ]
+        # Sum 60 > finding 50 → reject.
+        f = _nat_finding(candidates=candidates, monthly_impact_usd=50.0)
+        raw = _nat_raw(f, recommended_sequence=[
+            _sub(candidate_id="cand-gateway-s3",
+                 evidence_tier="observed", est_monthly_savings_usd=30.0),
+            _sub(candidate_id="cand-gateway-ddb",
+                 evidence_tier="observed", est_monthly_savings_usd=30.0),
+        ])
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert kept == []
+        assert dropped[0].reason == DropReason.CANDIDATE_SAVINGS_MISMATCH.value
+        assert "exceeds" in dropped[0].detail
+
+    def test_happy_path_canonicalises_sub_action_fields(self):
+        candidates = [{
+            "candidate_id": "cand-gateway-s3", "service": "s3",
+            "endpoint_type": "Gateway", "evidence_tier": "observed",
+            "est_monthly_savings_usd": 27.50, "blast_radius": "low",
+        }]
+        f = _nat_finding(candidates=candidates, monthly_impact_usd=32.40)
+        raw = _nat_raw(f, recommended_sequence=[
+            _sub(candidate_id="cand-gateway-s3",
+                 evidence_tier="observed",
+                 est_monthly_savings_usd=27.501),  # within tolerance
+        ])
+
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert dropped == []
+        assert len(kept) == 1
+        seq = kept[0].recommended_sequence
+        assert seq is not None and len(seq) == 1
+        # Canonical, not what the LLM emitted.
+        assert seq[0].est_monthly_savings_usd == 27.50
+        assert seq[0].evidence_tier == "observed"
+        assert seq[0].candidate_id == "cand-gateway-s3"
+        assert seq[0].action_kind == "add_vpc_endpoint"
+
+    def test_missing_recommended_sequence_is_fine(self):
+        # Most steps don't have one — backward compatible.
+        f = _nat_finding()
+        raw = _nat_raw(f)  # no recommended_sequence at all
+
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert dropped == []
+        assert len(kept) == 1
+        assert kept[0].recommended_sequence is None
+
+    def test_explicit_none_sequence_is_fine(self):
+        f = _nat_finding()
+        raw = _nat_raw(f, recommended_sequence=None)
+
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert dropped == []
+        assert kept[0].recommended_sequence is None
+
+    def test_sequence_must_be_list(self):
+        f = _nat_finding()
+        raw = _nat_raw(f, recommended_sequence={"oops": "dict"})
+
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert kept == []
+        assert dropped[0].reason == DropReason.SCHEMA_INVALID.value
+
+    def test_sub_action_missing_keys(self):
+        f = _nat_finding()
+        raw = _nat_raw(f, recommended_sequence=[
+            {"candidate_id": "cand-gateway-s3"},  # everything else missing
+        ])
+
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert kept == []
+        assert dropped[0].reason == DropReason.SCHEMA_INVALID.value
+
+    def test_observe_and_reassess_must_have_zero_savings(self):
+        # Even when the candidate's canonical savings is non-zero,
+        # observe_and_reassess is by definition a wait-and-watch step.
+        candidates = [{
+            "candidate_id": "cand-gateway-s3", "service": "s3",
+            "endpoint_type": "Gateway", "evidence_tier": "observed",
+            "est_monthly_savings_usd": 270.0, "blast_radius": "low",
+        }]
+        f = _nat_finding(candidates=candidates, monthly_impact_usd=412.0)
+        raw = _nat_raw(f, recommended_sequence=[
+            _sub(candidate_id="cand-gateway-s3",
+                 action_kind="observe_and_reassess",
+                 evidence_tier="observed",
+                 est_monthly_savings_usd=270.0),  # wrong — should be 0
+        ])
+
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert kept == []
+        assert dropped[0].reason == DropReason.CANDIDATE_SAVINGS_MISMATCH.value
+        assert "action_kind=observe_and_reassess" in dropped[0].detail
+
+    def test_mixed_sequence_one_bad_sub_action_drops_whole_step(self):
+        # A valid add_vpc_endpoint sub-action followed by an unknown
+        # candidate_id. The contract says: whole step drops; the good
+        # sub-action does not survive on its own. (Partial salvage of a
+        # corrupt sequence is worse than no plan.)
+        candidates = [{
+            "candidate_id": "cand-gateway-s3", "service": "s3",
+            "endpoint_type": "Gateway", "evidence_tier": "observed",
+            "est_monthly_savings_usd": 250.0, "blast_radius": "low",
+        }]
+        f = _nat_finding(candidates=candidates, monthly_impact_usd=412.0)
+        raw = _nat_raw(f, recommended_sequence=[
+            _sub(candidate_id="cand-gateway-s3",
+                 action_kind="add_vpc_endpoint",
+                 evidence_tier="observed",
+                 est_monthly_savings_usd=250.0),
+            _sub(candidate_id="cand-ghost-redshift"),  # invented
+        ])
+
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert kept == [], "valid sub-action must not survive on its own"
+        assert len(dropped) == 1
+        assert dropped[0].reason == DropReason.UNKNOWN_CANDIDATE_ID.value
+        # The dropped raw emission must carry BOTH sub-actions — the
+        # audit trail preserves the entire corrupt sequence, not just
+        # the offending entry.
+        seq = dropped[0].raw_emission["recommended_sequence"]
+        assert len(seq) == 2
+        assert seq[0]["candidate_id"] == "cand-gateway-s3"
+        assert seq[1]["candidate_id"] == "cand-ghost-redshift"
+
+    def test_observe_and_reassess_with_zero_savings_accepted(self):
+        candidates = [{
+            "candidate_id": "cand-gateway-s3", "service": "s3",
+            "endpoint_type": "Gateway", "evidence_tier": "observed",
+            "est_monthly_savings_usd": 270.0, "blast_radius": "low",
+        }]
+        f = _nat_finding(candidates=candidates, monthly_impact_usd=412.0)
+        raw = _nat_raw(f, recommended_sequence=[
+            _sub(candidate_id="cand-gateway-s3",
+                 action_kind="add_vpc_endpoint",
+                 evidence_tier="observed",
+                 est_monthly_savings_usd=270.0),
+            _sub(candidate_id="cand-gateway-s3",
+                 action_kind="observe_and_reassess",
+                 evidence_tier="observed",
+                 est_monthly_savings_usd=0.0),
+        ])
+
+        kept, dropped = validate_steps([raw], findings=[f])
+
+        assert dropped == []
+        assert len(kept) == 1
+        seq = kept[0].recommended_sequence
+        assert [s.action_kind for s in seq] == [
+            "add_vpc_endpoint", "observe_and_reassess",
+        ]
+        assert [s.est_monthly_savings_usd for s in seq] == [270.0, 0.0]

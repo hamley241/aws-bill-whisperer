@@ -42,7 +42,13 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from .modes import AvailableModesResolver
-from .schemas import DropReason, DroppedStep, PlanStep
+from .schemas import (
+    ALLOWED_ACTION_KINDS,
+    DropReason,
+    DroppedStep,
+    PlanStep,
+    SubAction,
+)
 
 if TYPE_CHECKING:
     from patterns.base import Finding
@@ -56,6 +62,13 @@ _REQUIRED_KEYS = ("finding_id", "suggested_mode", "monthly_impact_usd",
 # Tolerance for the LLM's dollar emission vs the canonical Finding value.
 # One cent — anything looser starts to mask LLM hallucination.
 MONTHLY_IMPACT_TOLERANCE = 0.01
+
+# Required fields on every sub-action emission inside a step's
+# `recommended_sequence`.
+_REQUIRED_SUBACTION_KEYS = (
+    "candidate_id", "action_kind", "est_monthly_savings_usd",
+    "evidence_tier", "rationale",
+)
 
 
 @dataclass
@@ -142,6 +155,16 @@ def validate_step(
     if not isinstance(rationale, str):
         rationale = str(rationale)
 
+    # 8. recommended_sequence (optional) — only checked when the LLM
+    #    chose to emit one. Whole-step drop on any sub-action failure;
+    #    salvaging half a sub-action plan is worse than no plan.
+    sub_actions: list[SubAction] | None = None
+    if "recommended_sequence" in raw and raw["recommended_sequence"] is not None:
+        sub_outcome = _validate_sub_actions(raw, finding)
+        if sub_outcome.dropped is not None:
+            return ValidationOutcome(kept=None, dropped=sub_outcome.dropped)
+        sub_actions = sub_outcome.kept_sub_actions
+
     # All checks passed. Build the PlanStep using the *canonical*
     # monthly_impact_usd, not the LLM-emitted value — that's the
     # "framework disposes" half of the rule.
@@ -152,8 +175,164 @@ def validate_step(
         monthly_impact_usd=canonical,
         rationale=rationale,
         order_rank=order_rank_int,
+        recommended_sequence=sub_actions,
     )
     return ValidationOutcome(kept=step, dropped=None)
+
+
+# ---------------------------------------------------------------------------
+# Sub-action validation (p006 — recommended_sequence)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _SubActionOutcome:
+    """Either kept_sub_actions is a list and dropped is None, or
+    dropped carries a DroppedStep describing why the whole step fails."""
+    kept_sub_actions: list[SubAction] | None
+    dropped: DroppedStep | None
+
+
+def _candidate_index(finding: "Finding") -> dict[str, dict[str, Any]]:
+    """Pull `evidence.inferred.endpoint_candidates` into a dict keyed by
+    candidate_id. Missing or malformed evidence is treated as an empty
+    candidate set — every sub-action will then fail UNKNOWN_CANDIDATE_ID,
+    which is the correct response for findings without candidates."""
+    inferred = finding.evidence.get("inferred") if isinstance(finding.evidence, dict) else None
+    candidates = inferred.get("endpoint_candidates", []) if isinstance(inferred, dict) else []
+    if not isinstance(candidates, list):
+        return {}
+    return {
+        c["candidate_id"]: c
+        for c in candidates
+        if isinstance(c, dict) and isinstance(c.get("candidate_id"), str)
+    }
+
+
+def _validate_sub_actions(raw: dict[str, Any], finding: "Finding") -> _SubActionOutcome:
+    """Validate raw `recommended_sequence`. Returns either a list of
+    canonical SubActions or a DroppedStep explaining the failure.
+
+    Validator order is deliberate:
+      1. shape (list, required keys, types)
+      2. candidate_id known
+      3. action_kind in closed enum
+      4. evidence_tier matches the candidate's canonical tier
+      5. est_monthly_savings_usd matches the candidate's canonical value
+      6. sum cap — total sub-action savings ≤ finding's monthly_impact_usd
+      7. canonicalisation (build SubAction from canonical candidate fields)
+    """
+    raw_sequence = raw["recommended_sequence"]
+    if not isinstance(raw_sequence, list):
+        return _SubActionOutcome(
+            kept_sub_actions=None,
+            dropped=_drop_step(
+                raw, DropReason.SCHEMA_INVALID, "sub_actions",
+                f"recommended_sequence must be a list, got {type(raw_sequence).__name__}",
+            ),
+        )
+
+    candidates = _candidate_index(finding)
+    canonical_actions: list[SubAction] = []
+    running_total = 0.0
+
+    for i, item in enumerate(raw_sequence):
+        if not isinstance(item, dict):
+            return _SubActionOutcome(None, _drop_step(
+                raw, DropReason.SCHEMA_INVALID, "sub_actions",
+                f"recommended_sequence[{i}] is not an object",
+            ))
+        missing = [k for k in _REQUIRED_SUBACTION_KEYS if k not in item]
+        if missing:
+            return _SubActionOutcome(None, _drop_step(
+                raw, DropReason.SCHEMA_INVALID, "sub_actions",
+                f"recommended_sequence[{i}] missing keys {missing}",
+            ))
+
+        candidate_id = item["candidate_id"]
+        if not isinstance(candidate_id, str) or candidate_id not in candidates:
+            return _SubActionOutcome(None, _drop_step(
+                raw, DropReason.UNKNOWN_CANDIDATE_ID, "sub_actions",
+                f"recommended_sequence[{i}] cites unknown candidate_id "
+                f"{candidate_id!r}; available: {sorted(candidates)}",
+            ))
+        canonical_candidate = candidates[candidate_id]
+
+        action_kind = item["action_kind"]
+        if action_kind not in ALLOWED_ACTION_KINDS:
+            return _SubActionOutcome(None, _drop_step(
+                raw, DropReason.INVALID_ACTION_KIND, "sub_actions",
+                f"recommended_sequence[{i}] action_kind {action_kind!r} "
+                f"not in {sorted(ALLOWED_ACTION_KINDS)}",
+            ))
+
+        emitted_tier = item["evidence_tier"]
+        canonical_tier = canonical_candidate.get("evidence_tier")
+        if emitted_tier != canonical_tier:
+            return _SubActionOutcome(None, _drop_step(
+                raw, DropReason.EVIDENCE_TIER_MISMATCH, "sub_actions",
+                f"recommended_sequence[{i}] evidence_tier {emitted_tier!r} "
+                f"!= candidate canonical {canonical_tier!r}",
+            ))
+
+        try:
+            emitted_savings = float(item["est_monthly_savings_usd"])
+        except (TypeError, ValueError):
+            return _SubActionOutcome(None, _drop_step(
+                raw, DropReason.CANDIDATE_SAVINGS_MISMATCH, "sub_actions",
+                f"recommended_sequence[{i}] est_monthly_savings_usd "
+                f"is not numeric: {item['est_monthly_savings_usd']!r}",
+            ))
+        # Per-kind savings rule:
+        #   add_vpc_endpoint      → savings == candidate canonical
+        #   observe_and_reassess  → savings == 0 (observing doesn't save)
+        # Both rules end with canonicalisation from a deterministic source.
+        if action_kind == "observe_and_reassess":
+            canonical_savings = 0.0
+        else:
+            canonical_savings = float(
+                canonical_candidate.get("est_monthly_savings_usd", 0.0)
+            )
+        if abs(emitted_savings - canonical_savings) > MONTHLY_IMPACT_TOLERANCE:
+            return _SubActionOutcome(None, _drop_step(
+                raw, DropReason.CANDIDATE_SAVINGS_MISMATCH, "sub_actions",
+                f"recommended_sequence[{i}] est_monthly_savings_usd "
+                f"emitted={emitted_savings} canonical={canonical_savings} "
+                f"(action_kind={action_kind})",
+            ))
+
+        running_total += canonical_savings
+        if running_total > finding.monthly_impact_usd + MONTHLY_IMPACT_TOLERANCE:
+            return _SubActionOutcome(None, _drop_step(
+                raw, DropReason.CANDIDATE_SAVINGS_MISMATCH, "sub_actions",
+                f"sub-action savings sum {running_total:.2f} exceeds "
+                f"finding monthly_impact_usd {finding.monthly_impact_usd:.2f}",
+            ))
+
+        sub_rationale = item["rationale"]
+        if not isinstance(sub_rationale, str):
+            sub_rationale = str(sub_rationale)
+
+        canonical_actions.append(SubAction(
+            candidate_id=candidate_id,
+            action_kind=action_kind,
+            est_monthly_savings_usd=canonical_savings,
+            evidence_tier=canonical_tier,
+            rationale=sub_rationale,
+        ))
+
+    return _SubActionOutcome(kept_sub_actions=canonical_actions, dropped=None)
+
+
+def _drop_step(raw: dict[str, Any], reason: DropReason, validator: str,
+               detail: str) -> DroppedStep:
+    """Build a DroppedStep — used directly by sub-action validation
+    (which returns a DroppedStep rather than a ValidationOutcome)."""
+    return DroppedStep(
+        raw_emission=dict(raw),
+        reason=reason.value,
+        validator=validator,
+        detail=detail,
+    )
 
 
 def validate_steps(

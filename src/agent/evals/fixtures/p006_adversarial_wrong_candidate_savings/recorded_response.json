@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Inflated savings claim — adversarial fixture.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"60000000-0006-4000-8000-000000000004\",\n      \"suggested_mode\": \"command\",\n      \"monthly_impact_usd\": 412.0,\n      \"rationale\": \"Plan claims more savings than the candidate evidence supports.\",\n      \"order_rank\": 1,\n      \"recommended_sequence\": [\n        {\n          \"candidate_id\": \"cand-gateway-s3\",\n          \"action_kind\": \"add_vpc_endpoint\",\n          \"est_monthly_savings_usd\": 350.0,\n          \"evidence_tier\": \"observed\",\n          \"rationale\": \"Adversarial: emitted savings 350.0 vs canonical 250.54.\"\n        }\n      ]\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Adversarial: validator must drop with reason CANDIDATE_SAVINGS_MISMATCH."
+  }
+}

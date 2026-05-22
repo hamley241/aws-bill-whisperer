@@ -1,0 +1,15 @@
+# Adversarial: the recorded response invents `cand-gateway-redshift`
+# which is not in the finding's endpoint_candidates. Whole step should
+# drop with UNKNOWN_CANDIDATE_ID; the planner ends with zero kept steps.
+
+- type: status
+  equals: validation_failed
+
+- type: steps_count
+  equals: 0
+
+- type: dropped_steps_count
+  min: 1
+
+- type: dropped_reason_present
+  reason: unknown_candidate_id

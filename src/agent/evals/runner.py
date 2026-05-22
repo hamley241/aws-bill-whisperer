@@ -39,7 +39,7 @@ from agent.schemas import PlanResult
 from llm.base import LLMClient, LLMResponse, Message
 from patterns.base import Finding, RiskTier
 
-from .rubric import CheckResult, load_rubric, run_rubric
+from .rubric import LEVEL_GATE, LEVEL_WARNING, CheckResult, load_rubric, run_rubric
 
 if TYPE_CHECKING:
     pass
@@ -210,7 +210,17 @@ class EvalResult:
 
     @property
     def ok(self) -> bool:
-        return not self.errors and all(c.ok for c in self.checks)
+        """A fixture passes iff every GATE check passes. Warnings are
+        recorded and printed but do not affect exit code — they exist
+        to surface drift before we have enough confidence to gate on
+        them. Promote via the _WARNING_TYPES map in rubric.py."""
+        if self.errors:
+            return False
+        return all(c.ok for c in self.checks if c.level == LEVEL_GATE)
+
+    @property
+    def warnings(self) -> list[CheckResult]:
+        return [c for c in self.checks if c.level == LEVEL_WARNING and not c.ok]
 
 
 def run_fixture(
@@ -330,11 +340,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     overall_ok = True
+    total_warnings = 0
     for scenario in scenarios:
         result = run_fixture(scenario, re_record=args.re_record)
         _print_result(result)
+        total_warnings += len(result.warnings)
         if not result.ok:
             overall_ok = False
+    if total_warnings:
+        print(f"\n{total_warnings} warning(s) across all fixtures "
+              "(warnings do not affect exit code).")
     return 0 if overall_ok else 1
 
 
@@ -346,12 +361,20 @@ def _all_scenarios() -> list[str]:
 
 def _print_result(result: EvalResult) -> None:
     marker = "PASS" if result.ok else "FAIL"
-    print(f"[{marker}] {result.fixture}")
+    warn_count = len(result.warnings)
+    suffix = f" ({warn_count} warning{'s' if warn_count != 1 else ''})" if warn_count else ""
+    print(f"[{marker}{suffix}] {result.fixture}")
     if result.rerecorded:
         print("  (recording refreshed)")
     for c in result.checks:
-        line_marker = "  ✓" if c.ok else "  ✗"
-        print(f"{line_marker} {c.assertion_type}: {c.detail}")
+        if c.level == LEVEL_WARNING:
+            line_marker = "  ⚠" if not c.ok else "  ✓"
+        else:
+            line_marker = "  ✓" if c.ok else "  ✗"
+        label = f"{c.assertion_type}"
+        if c.level == LEVEL_WARNING:
+            label = f"[warn] {label}"
+        print(f"{line_marker} {label}: {c.detail}")
     for err in result.errors:
         print(f"  ! {err}")
 

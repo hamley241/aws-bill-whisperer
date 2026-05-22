@@ -1,0 +1,15 @@
+# Adversarial: the recorded response cites cand-gateway-s3 (real) with
+# the WRONG savings figure (350 instead of canonical 250.54). The
+# validator must drop the whole step with CANDIDATE_SAVINGS_MISMATCH.
+
+- type: status
+  equals: validation_failed
+
+- type: steps_count
+  equals: 0
+
+- type: dropped_steps_count
+  min: 1
+
+- type: dropped_reason_present
+  reason: candidate_savings_mismatch

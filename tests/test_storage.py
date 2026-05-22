@@ -188,10 +188,18 @@ class TestPromptTemplateVersion:
         assert t.version == "v1"
 
     def test_existing_templates_have_v1(self):
+        # As templates evolve they're allowed to bump version; this test
+        # only catches *accidental* version loss. Intentional bumps are
+        # listed here so a reader can see the audit trail at a glance.
         from prompts import list_templates, load_template
+        expected_versions = {
+            "savings_plan": "v2",  # p006 — added recommended_sequence
+        }
         for name in list_templates():
-            assert load_template(name).version == "v1", \
-                f"template {name} lost its v1 default"
+            want = expected_versions.get(name, "v1")
+            assert load_template(name).version == want, \
+                f"template {name} expected {want!r}, " \
+                f"got {load_template(name).version!r}"
 
 
 class TestPromptPersistence:
