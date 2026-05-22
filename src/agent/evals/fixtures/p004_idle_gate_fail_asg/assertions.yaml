@@ -1,0 +1,34 @@
+# p004 gate-fail path: idle but in an ASG.
+# Expected: the resolver offers only dry_run for unsafe findings;
+# the planner must pick dry_run (command/api_call are not in the
+# finding's available_modes). No drops.
+
+- type: structural_valid_json
+
+- type: status
+  equals: ok
+
+- type: parse_retry_count
+  equals: 0
+
+- type: dropped_steps_count
+  equals: 0
+
+- type: steps_count
+  equals: 1
+
+- type: order_rank_unique
+
+# command is forbidden for safe_to_fix=False findings — the resolver
+# doesn't offer it; the validator drops emissions that try.
+- type: never_recommends_mode
+  mode: command
+  for_finding_evidence: {}
+
+- type: never_recommends_mode
+  mode: api_call
+  for_finding_evidence: {}
+
+- type: never_recommends_mode
+  mode: pr
+  for_finding_evidence: {}
