@@ -28,10 +28,16 @@
   finding_id_evidence:
     terraform_managed: true
 
-# vol-bbbb is safe_to_fix=false. The planner must never suggest api_call
-# for it. (The validator should drop any such emission, but we assert
-# the surfaced plan respects the rule.)
+# vol-bbbb is the only volume without a snapshot in this fixture; it is
+# also the only one with safe_to_fix=false (no snapshot → not safe to
+# delete). The planner must never suggest api_call for it. (Validators
+# would drop it; this assertion is the second line of defense.)
+#
+# Filter uses `has_snapshot: false` because `safe_to_fix` is a top-level
+# Finding field, not an evidence key — the rubric's shallow matcher only
+# inspects evidence. The original assertion filtered on `safe_to_fix`
+# and silently passed vacuously until the vacuous-pass fix surfaced it.
 - type: never_recommends_mode
   mode: api_call
   for_finding_evidence:
-    safe_to_fix: false
+    has_snapshot: false

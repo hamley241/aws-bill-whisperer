@@ -235,6 +235,79 @@ class TestRubricAssertions:
         )
         assert not r[0].ok
 
+    # --- Zero-match-fails-loud (rubric vacuous-pass fix) ---
+
+    def test_never_recommends_mode_fails_loud_when_pattern_id_matches_zero(self):
+        # for_pattern_id filter targets a pattern_id absent from input —
+        # under the previous semantics this silently passed because the
+        # offender loop found nothing. New semantics: malformed assertion.
+        f = _finding(pattern_id="001", evidence={})
+        r = run_rubric(
+            [{"type": "never_recommends_mode",
+              "mode": "api_call",
+              "for_pattern_id": "999"}],
+            _plan(steps=[_step(finding_id=f.id)]),
+            [f],
+        )
+        assert not r[0].ok
+        assert "matched zero" in r[0].detail
+
+    def test_never_recommends_mode_fails_loud_when_evidence_matches_zero(self):
+        # A nested-dict matcher in for_finding_evidence cannot resolve
+        # against the shallow comparator and ends up matching zero
+        # findings — must fail loud now.
+        f = _finding(evidence={"gates": {"not_prod": False, "ebs_root": True}})
+        r = run_rubric(
+            [{"type": "never_recommends_mode",
+              "mode": "command",
+              "for_finding_evidence": {"gates": {"not_prod": False}}}],
+            _plan(steps=[_step(finding_id=f.id)]),
+            [f],
+        )
+        assert not r[0].ok
+        assert "matched zero" in r[0].detail
+
+    def test_never_recommends_mode_passes_when_filter_matches_but_no_offender(self):
+        # Filter matches the input finding; the plan does not use the
+        # forbidden mode against it. Per the user's clarification, this
+        # is a legitimate pass — not a vacuous one.
+        f = _finding(pattern_id="004", evidence={})
+        r = run_rubric(
+            [{"type": "never_recommends_mode",
+              "mode": "api_call",
+              "for_pattern_id": "004"}],
+            _plan(steps=[_step(finding_id=f.id, pattern_id="004",
+                               suggested_mode="dry_run")]),
+            [f],
+        )
+        assert r[0].ok
+
+    def test_never_recommends_mode_no_filter_still_works(self):
+        # With neither for_pattern_id nor for_finding_evidence set,
+        # behaviour should match the pre-fix: forbid the mode globally.
+        # Empty-filter must not trigger the malformed-assertion branch.
+        f = _finding(evidence={})
+        r = run_rubric(
+            [{"type": "never_recommends_mode",
+              "mode": "api_call"}],
+            _plan(steps=[_step(finding_id=f.id, suggested_mode="dry_run")]),
+            [f],
+        )
+        assert r[0].ok
+
+    def test_includes_finding_fails_loud_when_filter_matches_zero(self):
+        # The includes_finding handler already loud-fails on zero-match,
+        # but the message is now standardized.
+        f = _finding(evidence={"terraform_managed": False})
+        r = run_rubric(
+            [{"type": "includes_finding",
+              "finding_id_evidence": {"terraform_managed": True}}],
+            _plan(steps=[_step(finding_id=f.id)]),
+            [f],
+        )
+        assert not r[0].ok
+        assert "matched zero" in r[0].detail
+
     def test_order_rank_unique_pass(self):
         r = run_rubric([{"type": "order_rank_unique"}],
                        _plan(steps=[_step(order_rank=1), _step(finding_id="f2", order_rank=2)]),
@@ -300,6 +373,56 @@ class TestReplay:
         run_fixture("p001_only")
         assert path.read_bytes() == before, \
             "replay must not modify recorded_response.json"
+
+    def test_cross_pattern_rank_headline_full_pass(self, monkeypatch):
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        result = run_fixture("cross_pattern_rank_headline")
+        assert result.ok, [c for c in result.checks if not c.ok and c.level == "gate"]
+        assert result.plan.status == "ok"
+        assert result.plan.dropped_steps == []
+        # Headline claim: one step per pattern, in dollar-rank order.
+        assert len(result.plan.steps) == 3
+        ranked = sorted(result.plan.steps, key=lambda s: s.order_rank)
+        assert ranked[0].pattern_id == "004"  # highest dollar
+        assert ranked[1].pattern_id == "001"
+        assert ranked[2].pattern_id == "006"  # lowest dollar; observe-and-reassess
+
+    def test_cross_pattern_adversarial_drops_three_distinct(self, monkeypatch):
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        result = run_fixture("cross_pattern_adversarial")
+        assert result.ok, [c for c in result.checks if not c.ok and c.level == "gate"]
+        assert result.plan.status == "ok"
+        # One valid p001 step survives.
+        assert len(result.plan.steps) == 1
+        assert result.plan.steps[0].pattern_id == "001"
+        # Exactly three distinct drop reasons fire.
+        reasons = {d.reason for d in result.plan.dropped_steps}
+        assert reasons == {
+            "monthly_impact_mismatch",
+            "unsupported_mode",
+            "candidate_savings_mismatch",
+        }, reasons
+        assert len(result.plan.dropped_steps) == 3
+
+    def test_cross_pattern_goal_adaptive_safe_first_omits_p004(self, monkeypatch):
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        result = run_fixture("cross_pattern_goal_adaptive_safe_first")
+        assert result.ok, [c for c in result.checks if not c.ok and c.level == "gate"]
+        assert result.plan.status == "ok"
+        assert result.plan.dropped_steps == []
+        # The headline adaptation claim: p004 must be entirely absent.
+        pattern_ids = {s.pattern_id for s in result.plan.steps}
+        assert pattern_ids == {"001", "006"}, pattern_ids
+        assert len(result.plan.steps) == 2
+
+    def test_p006_adversarial_monthly_impact_mismatch_drops(self, monkeypatch):
+        monkeypatch.delenv("WHISPER_ALLOW_REAL_LLM", raising=False)
+        result = run_fixture("p006_adversarial_monthly_impact_mismatch")
+        assert result.ok, [c for c in result.checks if not c.ok and c.level == "gate"]
+        assert result.plan.status == "validation_failed"
+        assert result.plan.steps == []
+        assert len(result.plan.dropped_steps) == 1
+        assert result.plan.dropped_steps[0].reason == "monthly_impact_mismatch"
 
 
 # ---------------------------------------------------------------------------

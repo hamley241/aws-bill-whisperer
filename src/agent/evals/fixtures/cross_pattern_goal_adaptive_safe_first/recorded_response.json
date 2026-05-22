@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Goal forbids touching Env=prod this week. The terraform-managed unattached volume and the NAT-observe-only step are both reversible and non-production; surface those two. Skip the idle m5.large entirely — it is tagged Env=prod and only dry_run is available, so even surfacing it as dry_run risks the team interpreting it as a green-light to stop a production workload this week.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"10000000-0001-4000-8000-000000000010\",\n      \"suggested_mode\": \"pr\",\n      \"monthly_impact_usd\": 80.0,\n      \"rationale\": \"1000GB gp2 vol-cross-1, 60d unattached, snapshot 10d, terraform-managed. PR mode is fully reversible via IaC and the volume has a recent snapshot to restore from if needed.\",\n      \"order_rank\": 1\n    },\n    {\n      \"finding_id\": \"60000000-0006-4000-8000-000000000030\",\n      \"suggested_mode\": \"dry_run\",\n      \"monthly_impact_usd\": 32.4,\n      \"rationale\": \"NAT nat-cross-dev is in a dev VPC and Flow Logs are absent. dry_run with observe-and-reassess collects evidence without touching production-adjacent network state.\",\n      \"order_rank\": 2,\n      \"recommended_sequence\": [\n        {\n          \"candidate_id\": \"cand-gateway-s3\",\n          \"action_kind\": \"observe_and_reassess\",\n          \"est_monthly_savings_usd\": 0.0,\n          \"evidence_tier\": \"inferred\",\n          \"rationale\": \"S3 Gateway is a candidate but no observed traffic data exists yet; enable Flow Logs and re-scan to quantify what an endpoint may save.\"\n        }\n      ]\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Goal-adaptive companion to cross_pattern_rank_headline. Same three patterns (p001/p004/p006); p004 here is Env=prod (safe_to_fix=false). Recorded plan omits p004 entirely per the 'avoid prod this week' goal, surfacing only the two non-prod findings. Compare the steps array to cross_pattern_rank_headline to see the goal's effect."
+  }
+}

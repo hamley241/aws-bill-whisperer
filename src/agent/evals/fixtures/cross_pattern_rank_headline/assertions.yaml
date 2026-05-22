@@ -1,0 +1,62 @@
+# Cross-pattern headline fixture: one finding per pattern (p001 storage,
+# p004 compute, p006 network). All findings are data-valid; all modes the
+# recording uses are within each pattern's resolver-exposed set.
+#
+# What this fixture proves:
+#   - Planner consumes mixed-category findings in one plan, no schema or
+#     ranking breakage.
+#   - p001 with terraform_managed=true gets PR mode.
+#   - p004 with all safety gates passing gets command mode (no PR — p004
+#     doesn't expose PR).
+#   - p006 with hourly_only cost source uses dry_run + observe_and_reassess
+#     (no savings claims).
+#   - total_impact_within_input_sum holds (load-bearing — the cross-pattern
+#     check that proves the planner isn't double-counting).
+#
+# Inclusion proof: with 3 input findings (one per pattern), strict
+# validator rules forbid duplicate finding_ids in a plan, so steps_count=3
+# + dropped_steps_count=0 + includes_finding(terraform_managed=true)
+# implies all three findings surface exactly once.
+
+- type: structural_valid_json
+
+- type: status
+  equals: ok
+
+- type: parse_retry_count
+  equals: 0
+
+- type: dropped_steps_count
+  equals: 0
+
+- type: steps_count
+  equals: 3
+
+- type: order_rank_unique
+
+- type: total_impact_within_input_sum
+
+# p001 (terraform-managed) must appear — the recording uses pr mode for it.
+- type: includes_finding
+  finding_id_evidence:
+    terraform_managed: true
+
+# p004 never supports pr — regardless of safety.
+- type: never_recommends_mode
+  mode: pr
+  for_pattern_id: "004"
+
+# p006 pr is deferred in this milestone (Terraform diff for VPC endpoints
+# is a follow-up). api_call is forbidden (route-table mutation is too
+# high-blast-radius for the LLM to suggest auto-execution).
+- type: never_recommends_mode
+  mode: pr
+  for_pattern_id: "006"
+
+- type: never_recommends_mode
+  mode: api_call
+  for_pattern_id: "006"
+
+# Sub-action hedging: p006's inferred candidate must use hedged verbs.
+# Warning-level — does not gate exit code.
+- type: rationale_hedges_inferred
