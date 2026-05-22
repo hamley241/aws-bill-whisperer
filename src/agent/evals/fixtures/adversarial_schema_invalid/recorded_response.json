@@ -1,0 +1,15 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Plan missing the rationale field.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"11111111-1111-4111-8111-111111111111\",\n      \"suggested_mode\": \"pr\",\n      \"monthly_impact_usd\": 80.0,\n      \"order_rank\": 1\n    }\n  ]\n}"
+  ],
+  "metadata": {
+    "model": "hand-crafted-adversarial",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "kind": "adversarial",
+    "drop_reason_under_test": "schema_invalid",
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v1",
+    "note": "Step is missing the `rationale` key. Validator step 1 (_REQUIRED_KEYS shape check) drops with SCHEMA_INVALID."
+  }
+}

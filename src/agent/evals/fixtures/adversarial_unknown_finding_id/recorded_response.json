@@ -1,0 +1,15 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Plan that invents a finding_id not in the input set.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"99999999-9999-4999-8999-999999999999\",\n      \"suggested_mode\": \"pr\",\n      \"monthly_impact_usd\": 80.0,\n      \"rationale\": \"Pretending this volume exists.\",\n      \"order_rank\": 1\n    }\n  ]\n}"
+  ],
+  "metadata": {
+    "model": "hand-crafted-adversarial",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "kind": "adversarial",
+    "drop_reason_under_test": "unknown_finding_id",
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v1",
+    "note": "Hand-crafted: the LLM hallucinates a UUID. validator step 2 (finding_id lookup) must drop with DropReason.UNKNOWN_FINDING_ID."
+  }
+}

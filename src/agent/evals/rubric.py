@@ -11,6 +11,10 @@ Supported numeric operators on dropped_steps_count and similar counters:
 Adversarial fixtures (planner stress tests with deliberately-broken
 LLM responses) use `min: 1` to assert the validator *did* drop bad
 emissions. Normal fixtures use `equals: 0` to assert clean output.
+
+For adversarial fixtures with multiple bad emissions, `dropped_step_reasons`
+asserts the *set* of drop reasons present, complementing the singular
+`dropped_reason_present`.
 """
 
 from __future__ import annotations
@@ -172,6 +176,33 @@ def _check_dropped_reason_present(a: dict, plan: PlanResult, _f) -> tuple[bool, 
     return False, f"reason {want!r} not in drops: {sorted(found)}"
 
 
+def _check_dropped_step_reasons(a: dict, plan: PlanResult, _f) -> tuple[bool, str]:
+    """Assert the *set* of drop reasons matches an expected list.
+
+    YAML:
+      - type: dropped_step_reasons
+        reasons: [unknown_finding_id, monthly_impact_mismatch]
+
+    The check uses set-equality, not multiset: two emissions dropped for
+    the same reason still produce one entry in the set. Adversarial
+    fixtures that need to assert multiplicity should combine this with
+    `dropped_steps_count`.
+    """
+    want = a.get("reasons")
+    if not isinstance(want, list):
+        return False, "dropped_step_reasons requires a 'reasons' list"
+    want_set = set(want)
+    found = {d.reason for d in plan.dropped_steps}
+    if want_set == found:
+        return True, f"drop reasons {sorted(found)} match expected"
+    missing = sorted(want_set - found)
+    extra = sorted(found - want_set)
+    return False, (
+        f"drop reasons mismatch — missing={missing} extra={extra} "
+        f"(want {sorted(want_set)}, got {sorted(found)})"
+    )
+
+
 _HANDLERS = {
     "structural_valid_json": _check_structural_valid_json,
     "status": _check_status,
@@ -183,6 +214,7 @@ _HANDLERS = {
     "never_recommends_mode": _check_never_recommends_mode,
     "order_rank_unique": _check_order_rank_unique,
     "dropped_reason_present": _check_dropped_reason_present,
+    "dropped_step_reasons": _check_dropped_step_reasons,
 }
 
 

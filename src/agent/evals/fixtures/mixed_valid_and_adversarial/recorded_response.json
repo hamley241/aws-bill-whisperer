@@ -1,0 +1,15 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Open a PR for the largest tagged volume. Two other emissions are deliberately broken to verify the validator drops them while the valid step survives.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"11111111-1111-4111-8111-111111111111\",\n      \"suggested_mode\": \"pr\",\n      \"monthly_impact_usd\": 80.0,\n      \"rationale\": \"Terraform-managed, snapshot exists, largest single saving. PR-mode keeps the change auditable.\",\n      \"order_rank\": 1\n    },\n    {\n      \"finding_id\": \"99999999-9999-4999-8999-999999999999\",\n      \"suggested_mode\": \"dry_run\",\n      \"monthly_impact_usd\": 5.0,\n      \"rationale\": \"Invented finding.\",\n      \"order_rank\": 2\n    },\n    {\n      \"finding_id\": \"22222222-2222-4222-8222-222222222222\",\n      \"suggested_mode\": \"api_call\",\n      \"monthly_impact_usd\": 12.0,\n      \"rationale\": \"Mode not exposed for this finding.\",\n      \"order_rank\": 3\n    }\n  ]\n}"
+  ],
+  "metadata": {
+    "model": "hand-crafted-adversarial",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "kind": "adversarial",
+    "drop_reason_under_test": "mixed",
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v1",
+    "note": "One valid step + two adversarial drops. Status must be ok because the validator promoted at least one PlanStep."
+  }
+}

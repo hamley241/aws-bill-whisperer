@@ -1,0 +1,1 @@
+Adversarial test — the recorded response emits a step missing the required `rationale` key. Validator must drop with schema_invalid.

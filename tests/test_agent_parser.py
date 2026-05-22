@@ -88,3 +88,75 @@ class TestParsePlanFailure:
         text = f"```json\n{bare}\n```\n"  # only the fence is non-empty after strip
         plan = parse_plan(text)
         assert plan.summary == "ok"
+
+    # ------------------------------------------------------------------
+    # PR 3: additional adversarial parser edge cases.
+    # ------------------------------------------------------------------
+
+    def test_fenced_with_surrounding_prose_accepted(self):
+        # Markdown-fenced JSON is still accepted when the model adds
+        # commentary before and after the fence.
+        text = (
+            "Sure, here is the plan you asked for:\n\n"
+            f"```json\n{_valid()}\n```\n\n"
+            "Let me know if you want any tweaks!"
+        )
+        plan = parse_plan(text)
+        assert plan.summary == "ok"
+
+    def test_two_fenced_objects_rejected(self):
+        # The "exactly one JSON object" rule must hold for fenced blocks too.
+        other = '{"summary": "other", "steps": []}'
+        text = (
+            "Plan A:\n"
+            f"```json\n{_valid()}\n```\n"
+            "Plan B:\n"
+            f"```json\n{other}\n```\n"
+        )
+        with pytest.raises(ParseError, match="2 distinct JSON objects"):
+            parse_plan(text)
+
+    def test_fenced_plus_bare_distinct_object_prefers_fence(self):
+        # A fenced block plus a different bare object in prose:
+        # _candidate_json_blocks prefers fences when any are present,
+        # so the bare object is silently skipped — only the fence is
+        # parsed. The fence content here is valid, so parsing succeeds
+        # and the fenced summary is what surfaces. This documents the
+        # precedence rule, not a rejection.
+        text = (
+            f"```json\n{_valid()}\n```\n\n"
+            'Other example object: {"summary": "z", "steps": []}'
+        )
+        plan = parse_plan(text)
+        # Fence wins; the bare {"summary":"z"} is not seen.
+        assert plan.summary == "ok"
+
+    def test_unbalanced_first_object_swallows_recovery(self):
+        # If the first JSON-looking span never closes, the brace-balancer
+        # can't surface the valid object that comes after it. The parser
+        # raises ParseError, which is the planner's signal to trigger its
+        # repair retry. This documents a known parser limitation in the
+        # SAFE direction: we refuse to surface a partial plan rather than
+        # guessing what the LLM meant.
+        bad = '{"summary": "x", "steps": [unclosed'
+        text = f"draft: {bad}\nfinal:\n{_valid()}"
+        with pytest.raises(ParseError):
+            parse_plan(text)
+
+    def test_balanced_but_unparseable_skipped_for_valid_sibling(self):
+        # Two balanced top-level {...} spans: the first is unparseable
+        # (unquoted key), the second is valid. The parser silently drops
+        # the malformed candidate (json.loads raises) and accepts the
+        # valid one. Single object survives — accepted.
+        bogus = "{foo: 1}"  # unquoted key → JSONDecodeError
+        text = f"first: {bogus}\nsecond: {_valid()}"
+        plan = parse_plan(text)
+        assert plan.summary == "ok"
+
+    def test_completely_malformed_raises_parse_error(self):
+        # Sanity: a malformed-only response (no recoverable JSON) raises
+        # ParseError, which is the signal the planner uses to trigger
+        # its one-shot repair retry.
+        text = "Sure, here you go: {malformed: no_quotes,"
+        with pytest.raises(ParseError):
+            parse_plan(text)

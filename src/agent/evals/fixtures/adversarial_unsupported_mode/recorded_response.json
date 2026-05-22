@@ -1,0 +1,15 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Plan that picks a mode the pattern does not expose.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"22222222-2222-4222-8222-222222222222\",\n      \"suggested_mode\": \"api_call\",\n      \"monthly_impact_usd\": 12.0,\n      \"rationale\": \"LLM ignored the available_modes list and picked api_call on a finding with safe_to_fix=False.\",\n      \"order_rank\": 1\n    }\n  ]\n}"
+  ],
+  "metadata": {
+    "model": "hand-crafted-adversarial",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "kind": "adversarial",
+    "drop_reason_under_test": "unsupported_mode",
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v1",
+    "note": "vol-bbbb has safe_to_fix=False and terraform_managed=False, so _p001_modes returns {dry_run, command}. api_call must be dropped."
+  }
+}

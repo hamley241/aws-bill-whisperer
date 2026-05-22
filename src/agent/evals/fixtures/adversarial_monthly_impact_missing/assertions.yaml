@@ -1,0 +1,22 @@
+# adversarial: monthly_impact_missing
+# Validator must drop emissions where monthly_impact_usd is null/non-numeric.
+
+- type: status
+  equals: validation_failed
+
+- type: steps_count
+  equals: 0
+
+- type: dropped_steps_count
+  equals: 1
+
+- type: parse_retry_count
+  equals: 0
+
+- type: dropped_reason_present
+  reason: monthly_impact_missing
+
+- type: dropped_step_reasons
+  reasons:
+    - monthly_impact_missing
+

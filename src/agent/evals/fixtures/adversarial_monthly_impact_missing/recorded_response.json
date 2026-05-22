@@ -1,0 +1,15 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Plan with a null monthly_impact_usd.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"11111111-1111-4111-8111-111111111111\",\n      \"suggested_mode\": \"pr\",\n      \"monthly_impact_usd\": null,\n      \"rationale\": \"LLM emitted the key but left the value null.\",\n      \"order_rank\": 1\n    }\n  ]\n}"
+  ],
+  "metadata": {
+    "model": "hand-crafted-adversarial",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "kind": "adversarial",
+    "drop_reason_under_test": "monthly_impact_missing",
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v1",
+    "note": "Key present, value null. Validator step 4 catches None and non-numeric values as MONTHLY_IMPACT_MISSING; omitting the key entirely would be SCHEMA_INVALID (shape check, step 1). The shape-vs-missing split is tracked in issue #3 — when that lands, this fixture should be migrated to emit an omitted key (the realistic production shape)."
+  }
+}

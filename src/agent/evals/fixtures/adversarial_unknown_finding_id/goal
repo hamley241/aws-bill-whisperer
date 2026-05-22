@@ -1,0 +1,1 @@
+Adversarial test — the recorded LLM response cites a finding_id that does not appear in the input. Validator must drop it.
