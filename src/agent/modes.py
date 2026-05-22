@@ -60,6 +60,13 @@ def _p006_modes(_finding: "Finding") -> set[RemediationMode]:
 
     No per-finding variation: candidate-tier gating happens inside the
     pattern's COMMAND handler, not in the resolver.
+
+    TODO (post-Flow-Logs): once observed-tier candidates exist, consider
+    moving the inferred-only "insufficient_evidence_for_command" check
+    out of pattern.remediate() and into the resolver — i.e., drop
+    COMMAND from the resolver's output when no observed candidate is
+    present. That tightens the "validator drops emissions the LLM was
+    never offered" guarantee.
     """
     return set(_UNIVERSAL_MODES)
 

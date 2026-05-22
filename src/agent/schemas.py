@@ -103,6 +103,11 @@ class PlanStep:
     recommended_sequence: list[SubAction] | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        # `recommended_sequence` is intentionally OMITTED when None so
+        # the on-disk JSON for legacy steps stays byte-identical to the
+        # pre-p006 shape. Combined with the dataclass default of None,
+        # this means old PlanRecord rows deserialize cleanly without a
+        # storage schema bump — see CURRENT_SCHEMA_VERSION docstring.
         d = {
             "finding_id": self.finding_id,
             "pattern_id": self.pattern_id,

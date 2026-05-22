@@ -58,6 +58,7 @@ Remediation modes
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -70,6 +71,9 @@ from .base import (
     RemediationResult,
     RiskTier,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -141,8 +145,12 @@ class NatGatewayPattern(BasePattern):
         for region in regions:
             try:
                 self._findings.extend(self._scan_region(region))
-            except Exception as e:  # pragma: no cover — surface in caller
-                print(f"Error scanning NAT Gateways in {region}: {e}")
+            except Exception:  # pragma: no cover — surface in caller
+                # Structured surfacing so log aggregators see the region and
+                # stack trace; never swallow into stdout.
+                logger.exception(
+                    "p006 scan failed for region %s; continuing", region,
+                )
                 continue
         return self._findings
 
@@ -266,7 +274,11 @@ class NatGatewayPattern(BasePattern):
             monthly_impact_usd=monthly_impact,
             summary=summary,
             risk_tier=risk,
-            confidence=0.6,  # hourly-only cost is conservative; bump in cloudwatch_derived
+            # 0.6: conservative under the hourly_only cost model — we know
+            # the NAT exists and what the hourly charge is, but processed-
+            # byte cost (the larger half) is unmeasured. Bump in the
+            # cloudwatch_derived path once metric semantics are verified.
+            confidence=0.6,
             # NAT changes are never safe-to-auto-fix in OSS this milestone:
             # api_call is forbidden and pr is deferred.
             safe_to_fix=False,
