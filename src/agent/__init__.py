@@ -18,15 +18,18 @@ sub-agents, remediation execution. See CLAUDE.md.
 
 from .planner import SavingsPlanner
 from .schemas import (
+    ALLOWED_ACTION_KINDS,
     CURRENT_SCHEMA_VERSION,
     DropReason,
     DroppedStep,
     PlanResult,
     PlanStep,
     PlanStatus,
+    SubAction,
 )
 
 __all__ = [
+    "ALLOWED_ACTION_KINDS",
     "CURRENT_SCHEMA_VERSION",
     "DropReason",
     "DroppedStep",
@@ -34,4 +37,5 @@ __all__ = [
     "PlanStatus",
     "PlanStep",
     "SavingsPlanner",
+    "SubAction",
 ]

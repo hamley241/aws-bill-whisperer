@@ -1,0 +1,22 @@
+# Adversarial: the recorded response uses a confident verb ("shows") in
+# the rationale of an INFERRED sub-action. Validators don't catch this
+# (it's language, not data) — but the warning-level rubric check
+# rationale_hedges_inferred must report the violation.
+#
+# Gate checks: the step itself is data-valid (real candidate, savings
+# match canonical 0.0, tier matches inferred). It should be ACCEPTED
+# by the validator. Warnings do not gate exit code.
+
+- type: structural_valid_json
+
+- type: status
+  equals: ok
+
+- type: steps_count
+  equals: 1
+
+- type: dropped_steps_count
+  equals: 0
+
+# Warning: should report the violation as a non-OK check (warning level).
+- type: rationale_hedges_inferred

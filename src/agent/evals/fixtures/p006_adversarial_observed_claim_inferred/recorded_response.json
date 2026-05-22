@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Plan with a confident-verb rationale on an inferred sub-action — should trigger the hedging warning.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"60000000-0006-4000-8000-000000000005\",\n      \"suggested_mode\": \"dry_run\",\n      \"monthly_impact_usd\": 32.4,\n      \"rationale\": \"Adversarial: rationale uses confident verbs at the sub-action level.\",\n      \"order_rank\": 1,\n      \"recommended_sequence\": [\n        {\n          \"candidate_id\": \"cand-gateway-s3\",\n          \"action_kind\": \"observe_and_reassess\",\n          \"est_monthly_savings_usd\": 0.0,\n          \"evidence_tier\": \"inferred\",\n          \"rationale\": \"Adversarial: this rationale shows that the model used a confident verb on an inferred sub-action — the hedging warning must catch the word 'shows'.\"\n        }\n      ]\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Adversarial: gate checks pass (data is valid). rationale_hedges_inferred should report a violation as a warning. Warning does not affect exit code."
+  }
+}

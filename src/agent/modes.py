@@ -49,11 +49,34 @@ def _p001_modes(finding: "Finding") -> set[RemediationMode]:
     return modes
 
 
+def _p006_modes(_finding: "Finding") -> set[RemediationMode]:
+    """p006 NAT Gateway optimization:
+
+      - DRY_RUN and COMMAND are always available (universal).
+      - PR is deferred (Terraform diff for VPC endpoints + route-table
+        associations is materially more complex than p001's).
+      - API_CALL is forbidden in this milestone — route-table mutation
+        or NAT removal is high-blast-radius and never auto-executable.
+
+    No per-finding variation: candidate-tier gating happens inside the
+    pattern's COMMAND handler, not in the resolver.
+
+    TODO (post-Flow-Logs): once observed-tier candidates exist, consider
+    moving the inferred-only "insufficient_evidence_for_command" check
+    out of pattern.remediate() and into the resolver — i.e., drop
+    COMMAND from the resolver's output when no observed candidate is
+    present. That tightens the "validator drops emissions the LLM was
+    never offered" guarantee.
+    """
+    return set(_UNIVERSAL_MODES)
+
+
 # Pattern-specific resolvers. Patterns not in this map fall back to the
 # universal-only set — they expose dry_run/command but nothing else,
 # which matches the BasePattern default behaviour.
 _RESOLVERS: dict[str, Callable[["Finding"], set[RemediationMode]]] = {
     "001": _p001_modes,
+    "006": _p006_modes,
 }
 
 

@@ -100,7 +100,7 @@ class TestHappyPath:
         assert result.summary == "trim the volume."
         assert result.goal == "cut 20%"
         assert result.prompt_template == "savings_plan"
-        assert result.prompt_template_version == "v1"
+        assert result.prompt_template_version == "v2"
         assert result.provider == "stub"
         assert result.boundary_crossed is False
         assert result.input_finding_ids == [f.id]
@@ -259,7 +259,7 @@ class TestPersistence:
         assert rows[0].actor == "U-test"
         assert rows[0].status == "ok"
         assert rows[0].parse_retry_count == 0
-        assert rows[0].prompt_template_version == "v1"
+        assert rows[0].prompt_template_version == "v2"
 
     def test_no_repository_means_no_write(self, tmp_path):
         # Just verify nothing blows up; we can't assert "no write"

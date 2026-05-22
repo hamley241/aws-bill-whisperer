@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Add a Redshift VPC endpoint (this is wrong — Redshift uses interface endpoints, and the fixture deliberately does not enumerate it).\",\n  \"steps\": [\n    {\n      \"finding_id\": \"60000000-0006-4000-8000-000000000003\",\n      \"suggested_mode\": \"command\",\n      \"monthly_impact_usd\": 32.4,\n      \"rationale\": \"Adversarial: invented candidate.\",\n      \"order_rank\": 1,\n      \"recommended_sequence\": [\n        {\n          \"candidate_id\": \"cand-gateway-redshift\",\n          \"action_kind\": \"add_vpc_endpoint\",\n          \"est_monthly_savings_usd\": 200.0,\n          \"evidence_tier\": \"inferred\",\n          \"rationale\": \"Adversarial fixture — this candidate does not exist in the finding evidence.\"\n        }\n      ]\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Adversarial: validator must drop the step with reason UNKNOWN_CANDIDATE_ID."
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Add an S3 Gateway VPC endpoint first (observed top destination, ~$250/mo recoverable), then re-scan to confirm before touching anything else.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"60000000-0006-4000-8000-000000000001\",\n      \"suggested_mode\": \"command\",\n      \"monthly_impact_usd\": 412.0,\n      \"rationale\": \"Flow Logs show 66% of bytes targeting S3. Adding the Gateway endpoint is additive and low blast radius; the surrounding NAT keeps serving everything else.\",\n      \"order_rank\": 1,\n      \"recommended_sequence\": [\n        {\n          \"candidate_id\": \"cand-gateway-s3\",\n          \"action_kind\": \"add_vpc_endpoint\",\n          \"est_monthly_savings_usd\": 250.54,\n          \"evidence_tier\": \"observed\",\n          \"rationale\": \"Flow Logs measured S3 as the dominant destination (66%). Gateway endpoints are free and route updates land via PR.\"\n        },\n        {\n          \"candidate_id\": \"cand-gateway-s3\",\n          \"action_kind\": \"observe_and_reassess\",\n          \"est_monthly_savings_usd\": 0.0,\n          \"evidence_tier\": \"observed\",\n          \"rationale\": \"After the endpoint is live, re-scan in 7 days to confirm NAT processed bytes drop before considering DynamoDB.\"\n        }\n      ]\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Hand-crafted happy path. Observed S3 candidate; staged add → observe sequence. Re-record against the live LLM with WHISPER_ALLOW_REAL_LLM=1 and --re-record."
+  }
+}

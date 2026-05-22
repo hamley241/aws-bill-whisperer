@@ -34,6 +34,49 @@ class DropReason(str, Enum):
     MONTHLY_IMPACT_MISSING = "monthly_impact_missing"
     SCHEMA_INVALID = "schema_invalid"
     DUPLICATE_FINDING_ID = "duplicate_finding_id"
+    # Sub-action drops (p006-introduced). Whole-step drops, not partial —
+    # a step with an invented or mismatched sub-action is corrupt and the
+    # planner does not get to salvage half of it.
+    UNKNOWN_CANDIDATE_ID = "unknown_candidate_id"
+    CANDIDATE_SAVINGS_MISMATCH = "candidate_savings_mismatch"
+    EVIDENCE_TIER_MISMATCH = "evidence_tier_mismatch"
+    INVALID_ACTION_KIND = "invalid_action_kind"
+
+
+# Closed set of action_kind values a sub-action may carry. v1 is
+# intentionally narrow — `remove_nat` and `downsize_nat` are out of
+# scope per the p006 contract.
+ALLOWED_ACTION_KINDS: frozenset[str] = frozenset({
+    "add_vpc_endpoint",
+    "observe_and_reassess",
+})
+
+
+@dataclass
+class SubAction:
+    """A recommended sub-step within a single PlanStep.
+
+    Used by p006 (and any future pattern whose finding represents one
+    physical resource but invites a sequence of partial remediations).
+    Sub-actions carry deterministic values copied from the finding's
+    `evidence.inferred.endpoint_candidates`; the validator canonicalises
+    `est_monthly_savings_usd` and `evidence_tier` after acceptance, so
+    downstream callers never see LLM-typed values for these fields.
+    """
+    candidate_id: str
+    action_kind: str
+    est_monthly_savings_usd: float
+    evidence_tier: str           # "observed" | "inferred"
+    rationale: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "candidate_id": self.candidate_id,
+            "action_kind": self.action_kind,
+            "est_monthly_savings_usd": round(self.est_monthly_savings_usd, 2),
+            "evidence_tier": self.evidence_tier,
+            "rationale": self.rationale,
+        }
 
 
 @dataclass
@@ -43,6 +86,13 @@ class PlanStep:
     `monthly_impact_usd` is the *canonical* value from the source Finding,
     not what the LLM emitted. Validators check the emission against the
     canonical value before this dataclass is constructed.
+
+    `recommended_sequence` is optional. When present, it carries an
+    ordered list of validated SubActions describing how the LLM proposes
+    to migrate or stage the remediation (e.g., for a NAT Gateway:
+    add VPC endpoint → observe and reassess). Storage of the field is
+    backward-compatible — older PlanRecord rows that lack it deserialize
+    to `None`.
     """
     finding_id: str
     pattern_id: str
@@ -50,9 +100,15 @@ class PlanStep:
     monthly_impact_usd: float
     rationale: str
     order_rank: int
+    recommended_sequence: list[SubAction] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        # `recommended_sequence` is intentionally OMITTED when None so
+        # the on-disk JSON for legacy steps stays byte-identical to the
+        # pre-p006 shape. Combined with the dataclass default of None,
+        # this means old PlanRecord rows deserialize cleanly without a
+        # storage schema bump — see CURRENT_SCHEMA_VERSION docstring.
+        d = {
             "finding_id": self.finding_id,
             "pattern_id": self.pattern_id,
             "suggested_mode": self.suggested_mode,
@@ -60,6 +116,11 @@ class PlanStep:
             "rationale": self.rationale,
             "order_rank": self.order_rank,
         }
+        if self.recommended_sequence is not None:
+            d["recommended_sequence"] = [
+                s.to_dict() for s in self.recommended_sequence
+            ]
+        return d
 
 
 @dataclass

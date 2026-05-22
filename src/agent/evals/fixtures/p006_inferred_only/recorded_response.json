@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Without Flow Logs we cannot quantify processed-byte savings. Recommend an observe_and_reassess step so the next scan has the data needed to commit.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"60000000-0006-4000-8000-000000000002\",\n      \"suggested_mode\": \"dry_run\",\n      \"monthly_impact_usd\": 32.4,\n      \"rationale\": \"NAT is costing the baseline hourly charge but Flow Logs are not enabled, so candidate savings are unknown. Enable Flow Logs and re-scan rather than guessing.\",\n      \"order_rank\": 1,\n      \"recommended_sequence\": [\n        {\n          \"candidate_id\": \"cand-gateway-s3\",\n          \"action_kind\": \"observe_and_reassess\",\n          \"est_monthly_savings_usd\": 0.0,\n          \"evidence_tier\": \"inferred\",\n          \"rationale\": \"S3 Gateway is a candidate but no observed traffic data exists yet; enable Flow Logs and re-scan to quantify what an endpoint may save.\"\n        },\n        {\n          \"candidate_id\": \"cand-gateway-ddb\",\n          \"action_kind\": \"observe_and_reassess\",\n          \"est_monthly_savings_usd\": 0.0,\n          \"evidence_tier\": \"inferred\",\n          \"rationale\": \"DynamoDB Gateway is likely a candidate; reassess after Flow Logs land to confirm whether traffic justifies the change.\"\n        }\n      ]\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Hand-crafted hedged path. All sub-actions are observe_and_reassess with savings=0 and hedged language. Should produce zero rationale_hedges_inferred violations."
+  }
+}

@@ -1,0 +1,34 @@
+# p006 inferred-only path: Flow Logs absent, cost_source=hourly_only.
+# Expected: planner recommends observe_and_reassess (no savings claims),
+# uses hedged language for all inferred sub-actions, no drops, no
+# hedging-warning violations.
+
+- type: structural_valid_json
+
+- type: status
+  equals: ok
+
+- type: parse_retry_count
+  equals: 0
+
+- type: dropped_steps_count
+  equals: 0
+
+- type: steps_count
+  equals: 1
+
+- type: order_rank_unique
+
+- type: never_recommends_mode
+  mode: api_call
+  for_finding_evidence: {}
+
+- type: never_recommends_mode
+  mode: pr
+  for_finding_evidence: {}
+
+# Warning-level: with only inferred candidates, the plan must avoid
+# confident verbs ("shows", "confirmed", "measured"). This recording
+# uses hedged verbs throughout, so the warning should report zero
+# violations.
+- type: rationale_hedges_inferred

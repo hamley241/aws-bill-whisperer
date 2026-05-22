@@ -32,11 +32,28 @@ if False:  # TYPE_CHECKING — avoid runtime import cycle
     from patterns.base import Finding
 
 
+# Warning-level rubric checks surface in eval output and the aggregate
+# summary but do NOT affect process exit code. Promote to a CI gate
+# (level="gate") in a later PR once the check is empirically reliable.
+LEVEL_GATE = "gate"
+LEVEL_WARNING = "warning"
+
+# Verbs forbidden in rationales of sub-actions whose evidence_tier is
+# "inferred". Intentionally short — promote a verb once the warning
+# fires reliably on real model output.
+CONFIDENT_VERBS_INFERRED: tuple[str, ...] = (
+    "shows",
+    "confirmed",
+    "measured",
+)
+
+
 @dataclass
 class CheckResult:
     assertion_type: str
     ok: bool
     detail: str = ""
+    level: str = LEVEL_GATE   # LEVEL_GATE | LEVEL_WARNING
 
 
 def load_rubric(path: Path) -> list[dict[str, Any]]:
@@ -65,13 +82,15 @@ def _apply(assertion: dict[str, Any], plan: PlanResult,
            findings_by_id: dict[str, "Finding"]) -> CheckResult:
     atype = assertion["type"]
     handler = _HANDLERS.get(atype)
+    level = _WARNING_TYPES.get(atype, LEVEL_GATE)
     if handler is None:
-        return CheckResult(atype, False, f"unknown assertion type: {atype}")
+        return CheckResult(atype, False, f"unknown assertion type: {atype}",
+                           level=level)
     try:
         ok, detail = handler(assertion, plan, findings_by_id)
     except Exception as e:  # surface as a failure, not a crash
-        return CheckResult(atype, False, f"assertion raised: {e}")
-    return CheckResult(atype, ok, detail)
+        return CheckResult(atype, False, f"assertion raised: {e}", level=level)
+    return CheckResult(atype, ok, detail, level=level)
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +191,31 @@ def _check_dropped_reason_present(a: dict, plan: PlanResult, _f) -> tuple[bool, 
     return False, f"reason {want!r} not in drops: {sorted(found)}"
 
 
+def _check_rationale_hedges_inferred(_a, plan: PlanResult, _f) -> tuple[bool, str]:
+    """Warning: scan rationales of `evidence_tier="inferred"` sub-actions
+    for confident verbs. Pure warning — only the rationales of inferred
+    sub-actions are scanned (not free-form plan text), to keep the false-
+    positive rate manageable while the heuristic matures.
+    """
+    offenders: list[str] = []
+    for step in plan.steps:
+        if not step.recommended_sequence:
+            continue
+        for sub in step.recommended_sequence:
+            if sub.evidence_tier != "inferred":
+                continue
+            text = (sub.rationale or "").lower()
+            for verb in CONFIDENT_VERBS_INFERRED:
+                if verb in text:
+                    offenders.append(
+                        f"{step.finding_id}/{sub.candidate_id}: {verb!r}"
+                    )
+                    break
+    if offenders:
+        return False, "confident verbs in inferred rationales: " + "; ".join(offenders)
+    return True, "no confident verbs in inferred rationales"
+
+
 _HANDLERS = {
     "structural_valid_json": _check_structural_valid_json,
     "status": _check_status,
@@ -183,6 +227,14 @@ _HANDLERS = {
     "never_recommends_mode": _check_never_recommends_mode,
     "order_rank_unique": _check_order_rank_unique,
     "dropped_reason_present": _check_dropped_reason_present,
+    "rationale_hedges_inferred": _check_rationale_hedges_inferred,
+}
+
+# Assertion types that surface as warnings rather than CI gates. The
+# rubric still records the result; the runner excludes warnings from
+# the failing set used for exit code.
+_WARNING_TYPES: dict[str, str] = {
+    "rationale_hedges_inferred": LEVEL_WARNING,
 }
 
 
