@@ -116,14 +116,13 @@ class TestParsePlanFailure:
         with pytest.raises(ParseError, match="2 distinct JSON objects"):
             parse_plan(text)
 
-    def test_fenced_plus_bare_distinct_object_rejected(self):
-        # A fenced block plus a different bare object in prose. Note:
-        # _candidate_json_blocks prefers fences when present, so the
-        # bare object is silently skipped — only the fence is parsed.
-        # Resulting behaviour: ParseError "missing summary" or similar
-        # if the fence content is malformed; here, the fence content
-        # IS valid, so the fenced object is accepted. Documenting the
-        # behavior with a test.
+    def test_fenced_plus_bare_distinct_object_prefers_fence(self):
+        # A fenced block plus a different bare object in prose:
+        # _candidate_json_blocks prefers fences when any are present,
+        # so the bare object is silently skipped — only the fence is
+        # parsed. The fence content here is valid, so parsing succeeds
+        # and the fenced summary is what surfaces. This documents the
+        # precedence rule, not a rejection.
         text = (
             f"```json\n{_valid()}\n```\n\n"
             'Other example object: {"summary": "z", "steps": []}'
