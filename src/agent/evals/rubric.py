@@ -158,15 +158,40 @@ def _check_includes_finding_with_evidence(a: dict, plan: PlanResult,
 
 def _check_never_recommends_mode(a: dict, plan: PlanResult,
                                  findings_by_id: dict) -> tuple[bool, str]:
-    """Assert no step suggests `mode` for any finding matching `for_finding_evidence`."""
+    """Assert no step suggests `mode` for any finding matching the filters.
+
+    Filters apply **conjunctively** — every filter present on the
+    assertion must match for a finding to be counted as a candidate
+    offender. With no filters set, every finding matches (i.e., the
+    assertion forbids the mode globally for every step in the plan).
+
+    Supported filters:
+      - `for_pattern_id`: optional string. The finding's `pattern_id`
+        must equal this value exactly.
+      - `for_finding_evidence`: optional dict. Each key must appear as
+        a top-level key in `finding.evidence`, and its value must
+        equal the finding's value under that key (shallow equality;
+        nested dict matching is NOT supported — see the rubric
+        vacuous-pass follow-up).
+
+    Caveat — silent vacuous pass: a filter that matches zero findings
+    produces no offenders and returns True. A typo in `for_pattern_id`
+    ("04" vs "004") or a nested-dict in `for_finding_evidence` will
+    silently neuter the assertion. The broader fix (fail loud on
+    zero-match) is tracked as a deferred rubric follow-up
+    (`project_rubric_vacuous_pass`).
+    """
     mode = a["mode"]
     want = a.get("for_finding_evidence") or {}
+    want_pattern_id = a.get("for_pattern_id")
     offenders = []
     for step in plan.steps:
         if step.suggested_mode != mode:
             continue
         f = findings_by_id.get(step.finding_id)
         if f is None:
+            continue
+        if want_pattern_id is not None and f.pattern_id != want_pattern_id:
             continue
         if all(f.evidence.get(k) == v for k, v in want.items()):
             offenders.append(step.finding_id)

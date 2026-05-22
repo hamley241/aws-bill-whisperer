@@ -1,0 +1,45 @@
+# PREVIEW fixture — cross-pattern (p001 storage + p004 compute).
+#
+# Scope: prove the planner consumes mixed findings without schema or
+# ranking breakage. NO cross-pattern rubric semantics yet — that's the
+# dedicated cross-pattern eval PR. Assertions here are deliberately
+# minimal: structural validity, no drops, both findings ranked, plus
+# the load-bearing per-pattern safety claims that span both findings.
+#
+# See README.md in this directory for the future-state framing.
+
+- type: structural_valid_json
+
+- type: status
+  equals: ok
+
+- type: parse_retry_count
+  equals: 0
+
+- type: dropped_steps_count
+  equals: 0
+
+- type: steps_count
+  equals: 2
+
+- type: total_impact_within_input_sum
+
+- type: order_rank_unique
+
+# Load-bearing safety: the p004 finding in this fixture has not_prod=false
+# (Env=prod tag), so its safe_to_fix is false. The resolver offers only
+# dry_run. The planner must never recommend command or api_call against
+# ANY p004 finding here. `for_pattern_id` filters strictly on pattern_id
+# (introduced in this PR — see rubric._check_never_recommends_mode).
+- type: never_recommends_mode
+  mode: command
+  for_pattern_id: "004"
+
+- type: never_recommends_mode
+  mode: api_call
+  for_pattern_id: "004"
+
+# p004 never supports pr — regardless of safety.
+- type: never_recommends_mode
+  mode: pr
+  for_pattern_id: "004"

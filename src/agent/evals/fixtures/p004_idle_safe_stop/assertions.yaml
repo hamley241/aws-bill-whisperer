@@ -1,0 +1,29 @@
+# p004 happy path: one safe idle finding, all gates pass.
+# Expected: the planner cites the finding with suggested_mode in
+# {command, api_call} (both are offered when safe_to_fix=True).
+# Validators accept; no drops; never PR.
+
+- type: structural_valid_json
+
+- type: status
+  equals: ok
+
+- type: parse_retry_count
+  equals: 0
+
+- type: dropped_steps_count
+  equals: 0
+
+- type: steps_count
+  equals: 1
+
+- type: total_impact_within_input_sum
+
+- type: order_rank_unique
+
+# pr is deferred for p004 — never offered. The recorded response picks
+# `command`; this assertion catches a future regression that exposes
+# `pr` to the resolver for p004.
+- type: never_recommends_mode
+  mode: pr
+  for_finding_evidence: {}

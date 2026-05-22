@@ -7,9 +7,11 @@ validates LLM emissions against it. This is the "modes are not
 negotiable" enforcement point — the LLM never invents an unsupported
 mode, and even if it tries, the validator drops it.
 
-The spike scopes to p001 because that's the only fully bulletproof
-pattern. p006 and p004 plug their resolver logic in here later; the
-resolver itself stays a thin dispatch on `Finding.pattern_id`.
+The resolver dispatches on `Finding.pattern_id`. Each pattern function
+expresses ONE eligibility rule that both the resolver and the pattern's
+`remediate()` consult — that's the "single eligibility function" guarantee
+the cross-pattern invariant tests pin (resolver and remediator must
+agree on which modes are offered vs accepted for a given finding).
 """
 
 from __future__ import annotations
@@ -49,6 +51,32 @@ def _p001_modes(finding: "Finding") -> set[RemediationMode]:
     return modes
 
 
+def _p004_modes(finding: "Finding") -> set[RemediationMode]:
+    """p004 idle EC2:
+
+      - DRY_RUN is always available (renders evidence; no side effects).
+      - COMMAND and API_CALL are gated on `finding.safe_to_fix`, which is
+        the scanner's AND of every gate in `evidence.gates`. If any gate
+        failed (prod tag, ASG membership, ALB/NLB attachment, non-EBS
+        root, spot, insufficient CW data, instance too young), the
+        resolver hides both COMMAND and API_CALL — there is no "emit
+        the command but refuse to run it" middle ground.
+      - PR is never offered. Instance run-state isn't cleanly modelled
+        in Terraform (a stopped instance shows up as drift, not a config
+        change), so the diff would lie.
+
+    The eligibility check (`finding.safe_to_fix`) is the same boolean
+    the pattern's COMMAND / API_CALL branches consult. Tests pin that
+    the resolver's offer set matches the remediator's accept set
+    (TestResolverAndRemediatorAgreeOnEligibility).
+    """
+    modes = {RemediationMode.DRY_RUN}
+    if finding.safe_to_fix:
+        modes.add(RemediationMode.COMMAND)
+        modes.add(RemediationMode.API_CALL)
+    return modes
+
+
 def _p006_modes(_finding: "Finding") -> set[RemediationMode]:
     """p006 NAT Gateway optimization:
 
@@ -76,6 +104,7 @@ def _p006_modes(_finding: "Finding") -> set[RemediationMode]:
 # which matches the BasePattern default behaviour.
 _RESOLVERS: dict[str, Callable[["Finding"], set[RemediationMode]]] = {
     "001": _p001_modes,
+    "004": _p004_modes,
     "006": _p006_modes,
 }
 
