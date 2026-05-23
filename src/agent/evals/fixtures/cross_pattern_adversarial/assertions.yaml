@@ -1,0 +1,55 @@
+# Cross-pattern adversarial fixture.
+#
+# Per-step validation is the primary defense against aggregate inflation:
+# if every kept step's monthly_impact_usd is canonicalised from a real
+# Finding, the aggregate is structurally bounded.
+# total_impact_within_input_sum is the belt-and-braces assertion.
+#
+# This fixture proves three distinct per-step drops fire in cross-pattern
+# context and a clean p001 step survives:
+#
+#   1. p004 with inflated monthly_impact_usd  → MONTHLY_IMPACT_MISMATCH
+#   2. p004 with api_call against unsafe (ASG) → UNSUPPORTED_MODE
+#   3. p006 add_vpc_endpoint with non-zero savings on inferred candidate
+#                                              → CANDIDATE_SAVINGS_MISMATCH
+#   4. p001 PR step (data-valid)               → kept; status=ok
+#
+# Drop ordering note: the two p004 emissions both reference the same
+# finding_id, but neither is accepted, so seen_finding_ids stays empty
+# and DUPLICATE_FINDING_ID never trips. Each emission fails at its
+# distinct validator stage.
+
+- type: structural_valid_json
+
+- type: status
+  equals: ok
+
+- type: parse_retry_count
+  equals: 0
+
+- type: steps_count
+  equals: 1
+
+- type: dropped_steps_count
+  equals: 3
+
+- type: dropped_reason_present
+  reason: monthly_impact_mismatch
+
+- type: dropped_reason_present
+  reason: unsupported_mode
+
+- type: dropped_reason_present
+  reason: candidate_savings_mismatch
+
+- type: order_rank_unique
+
+# Load-bearing aggregate check. With only the p001 step kept ($80), the
+# plan total must remain ≤ $80 + $138.24 + $32.40 = $250.64.
+- type: total_impact_within_input_sum
+
+# Belt-and-braces: even though the api_call emission was dropped, the
+# surfaced plan must not contain api_call against any p004 finding.
+- type: never_recommends_mode
+  mode: api_call
+  for_pattern_id: "004"

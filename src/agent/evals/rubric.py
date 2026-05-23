@@ -141,14 +141,27 @@ def _check_includes_finding_with_evidence(a: dict, plan: PlanResult,
     YAML:
       - type: includes_finding
         finding_id_evidence: { terraform_managed: true }
+
+    Zero-match semantics: a non-empty `finding_id_evidence` filter that
+    matches zero input findings is a malformed assertion (the author
+    wrote a filter intending it to select something; selecting nothing
+    is a typo, stale evidence key, or a nested-dict matcher that the
+    shallow comparator cannot resolve). The check fails loud rather
+    than passing vacuously. An empty filter `{}` still matches every
+    finding by convention.
     """
     want = a.get("finding_id_evidence") or {}
     matching_ids = {
         fid for fid, f in findings_by_id.items()
         if all(f.evidence.get(k) == v for k, v in want.items())
     }
+    if want and not matching_ids:
+        return False, (
+            f"malformed assertion: filter {want!r} matched zero of "
+            f"{len(findings_by_id)} input findings"
+        )
     if not matching_ids:
-        return False, f"no input finding matches evidence {want!r}"
+        return False, "no input findings provided"
     planned_ids = {s.finding_id for s in plan.steps}
     if matching_ids & planned_ids:
         return True, f"plan includes one of {sorted(matching_ids)}"
@@ -171,30 +184,47 @@ def _check_never_recommends_mode(a: dict, plan: PlanResult,
       - `for_finding_evidence`: optional dict. Each key must appear as
         a top-level key in `finding.evidence`, and its value must
         equal the finding's value under that key (shallow equality;
-        nested dict matching is NOT supported — see the rubric
-        vacuous-pass follow-up).
+        nested dict matching is NOT supported).
 
-    Caveat — silent vacuous pass: a filter that matches zero findings
-    produces no offenders and returns True. A typo in `for_pattern_id`
-    ("04" vs "004") or a nested-dict in `for_finding_evidence` will
-    silently neuter the assertion. The broader fix (fail loud on
-    zero-match) is tracked as a deferred rubric follow-up
-    (`project_rubric_vacuous_pass`).
+    Zero-match semantics: when any filter is present and the combined
+    filter set matches zero input findings, the assertion is treated
+    as malformed and fails loud. Previously this case silently passed
+    ("no offenders found"), which masked typos in `for_pattern_id`
+    (`"04"` vs `"004"`) and unresolvable nested matchers in
+    `for_finding_evidence`. An assertion with both filters absent
+    (forbidding the mode globally) retains its prior semantics.
     """
     mode = a["mode"]
     want = a.get("for_finding_evidence") or {}
     want_pattern_id = a.get("for_pattern_id")
+    has_filter = bool(want) or want_pattern_id is not None
+
+    if has_filter:
+        matching_finding_ids = {
+            fid for fid, f in findings_by_id.items()
+            if (want_pattern_id is None or f.pattern_id == want_pattern_id)
+            and all(f.evidence.get(k) == v for k, v in want.items())
+        }
+        if not matching_finding_ids:
+            filter_repr = {
+                **({"for_pattern_id": want_pattern_id}
+                   if want_pattern_id is not None else {}),
+                **({"for_finding_evidence": want} if want else {}),
+            }
+            return False, (
+                f"malformed assertion: filter {filter_repr!r} matched zero "
+                f"of {len(findings_by_id)} input findings"
+            )
+    else:
+        matching_finding_ids = set(findings_by_id)
+
     offenders = []
     for step in plan.steps:
         if step.suggested_mode != mode:
             continue
-        f = findings_by_id.get(step.finding_id)
-        if f is None:
+        if step.finding_id not in matching_finding_ids:
             continue
-        if want_pattern_id is not None and f.pattern_id != want_pattern_id:
-            continue
-        if all(f.evidence.get(k) == v for k, v in want.items()):
-            offenders.append(step.finding_id)
+        offenders.append(step.finding_id)
     if offenders:
         return False, f"steps for findings {offenders} use forbidden mode {mode!r}"
     return True, f"no step uses {mode!r} for matching findings"
