@@ -36,7 +36,7 @@ features:
   slash_commands:
     - command: /whisper
       description: AWS Bill Whisperer
-      usage_hint: scan
+      usage_hint: "scan | plan goal: <text>"
       should_escape: false
       # Replace with your deployed API Gateway URL before importing.
       url: https://example.execute-api.us-east-1.amazonaws.com/prod/slack/events
