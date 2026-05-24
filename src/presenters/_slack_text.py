@@ -53,3 +53,62 @@ def escape_mrkdwn(text: str | None) -> str:
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
+
+
+# Slack's per-text-element ceiling for `mrkdwn` (section / context).
+# Source: https://api.slack.com/reference/block-kit/composition-objects#text
+# Exceeding this returns `invalid_blocks` from chat.postMessage and the
+# message is rejected — the same failure mode as the 50-block limit.
+SLACK_MAX_MRKDWN_CHARS = 3000
+
+_ELLIPSIS = "… (clipped)"
+
+
+def clip_for_mrkdwn(text: str, max_chars: int = SLACK_MAX_MRKDWN_CHARS) -> str:
+    """Clip an already-escaped string to fit a Slack text-element budget.
+
+    Appends "… (clipped)" so truncation is visible to the user (silent
+    truncation would be worse — they'd think they're seeing the whole
+    rationale). Walks back from the cut point if it lands inside an
+    HTML entity (e.g. `&am`) so we don't leave a malformed entity prefix.
+
+    Apply AFTER `escape_mrkdwn` so the budget reflects what Slack receives
+    (escape can expand `<` to `&lt;`, 4x worst case). Callers should
+    pass a per-field budget that leaves headroom for the surrounding
+    template (titles, prefixes, decorators) summing to under the hard
+    Slack limit per composed block.
+    """
+    if len(text) <= max_chars:
+        return text
+    budget = max(0, max_chars - len(_ELLIPSIS))
+    out = text[:budget]
+    # If we cut mid-entity, walk back to the `&` so we don't render
+    # `&am…` as literal characters.
+    amp = out.rfind("&")
+    if amp >= 0 and ";" not in out[amp:]:
+        out = out[:amp]
+    return out + _ELLIPSIS
+
+
+def safe_mrkdwn(text: str | None, max_chars: int = SLACK_MAX_MRKDWN_CHARS) -> str:
+    """Escape + clip in one call. The canonical way to interpolate an
+    untrusted field into a Slack mrkdwn text element."""
+    return clip_for_mrkdwn(escape_mrkdwn(text), max_chars)
+
+
+def safe_mrkdwn_code(text: str | None,
+                     max_chars: int = SLACK_MAX_MRKDWN_CHARS) -> str:
+    """Like `safe_mrkdwn` but additionally strips backticks.
+
+    Use when the result will be placed inside a Slack inline code span
+    or triple-backtick code fence. A backtick inside the content would
+    otherwise close the surrounding code span prematurely and let any
+    following content render as raw mrkdwn — re-introducing the injection
+    vector even when angle-bracket escaping is in place. Slack mrkdwn
+    has no documented backtick escape, so we substitute single-quote.
+    """
+    if text is None:
+        return ""
+    s = text if isinstance(text, str) else str(text)
+    s = s.replace("`", "'")
+    return safe_mrkdwn(s, max_chars)

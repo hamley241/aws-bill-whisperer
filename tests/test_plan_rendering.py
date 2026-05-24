@@ -57,7 +57,13 @@ from agent.schemas import (  # noqa: E402
     SubAction,
 )
 from patterns.base import Finding, RiskTier  # noqa: E402
-from presenters._slack_text import escape_mrkdwn  # noqa: E402
+from presenters._slack_text import (  # noqa: E402
+    SLACK_MAX_MRKDWN_CHARS,
+    clip_for_mrkdwn,
+    escape_mrkdwn,
+    safe_mrkdwn,
+    safe_mrkdwn_code,
+)
 from presenters._verb_lists import HEDGED_VERBS, UNHEDGED_VERBS  # noqa: E402
 from presenters.plan import (  # noqa: E402
     RENDERABLE_SCHEMA_VERSION,
@@ -1069,4 +1075,295 @@ class TestSlackMrkdwnEscaping:
         # don't interpret angle brackets as control).
         assert "<!here>" in text
         assert "<@U_admin>" in text
+
+
+# ---------------------------------------------------------------------------
+# Slack text-length budget — the 3000-char-per-text-element cap
+# ---------------------------------------------------------------------------
+
+class TestSlackTextLengthBudget:
+    """Slack's chat.postMessage rejects messages whose `mrkdwn` text
+    elements exceed ~3000 characters with `invalid_blocks`. The
+    block-count budget on its own is not sufficient — one verbose LLM
+    rationale can still blow a single section's text budget and the
+    whole message gets rejected. The same failure mode as block-count
+    overflow: `_safe_post` only logs, so the user sees a dangling
+    "Planning…" with no plan.
+
+    These tests pin clipping at the per-field budgets, the entity-safe
+    cut-back behavior, and the end-to-end property that no rendered
+    block's text element exceeds Slack's hard limit.
+    """
+
+    # ---- helper-unit tests ----
+
+    def test_clip_for_mrkdwn_passthrough_when_short(self):
+        assert clip_for_mrkdwn("short", max_chars=100) == "short"
+
+    def test_clip_for_mrkdwn_truncates_with_ellipsis(self):
+        text = "x" * 5000
+        out = clip_for_mrkdwn(text, max_chars=100)
+        assert len(out) <= 100
+        assert out.endswith("… (clipped)")
+
+    def test_clip_for_mrkdwn_walks_back_dangling_entity(self):
+        # Construct an escaped string where the budget cut would land
+        # inside `&amp;`. The clipper must walk back past the `&` so
+        # we don't render `&am` as literal characters.
+        text = ("a" * 90) + "&amp;" + ("b" * 100)
+        # Budget puts the cut inside `&amp;`.
+        out = clip_for_mrkdwn(text, max_chars=94)
+        # The `&` and partial entity should not appear at the end.
+        # The clipper walks back to the `&` and appends the ellipsis.
+        assert "&am" not in out  # no dangling partial entity
+        assert out.endswith("… (clipped)")
+
+    def test_safe_mrkdwn_escapes_then_clips(self):
+        # Escape can expand 1 char → 4 chars; the clipper must measure
+        # post-escape length.
+        text = "<" * 1000  # 1000 chars in, but escapes to 4000 chars
+        out = safe_mrkdwn(text, max_chars=200)
+        assert len(out) <= 200
+        assert "<" not in out  # all escaped
+        assert out.endswith("… (clipped)")
+
+    def test_safe_mrkdwn_code_strips_backticks(self):
+        # Backticks inside a code span close it prematurely.
+        out = safe_mrkdwn_code("vol-`evil`-name", max_chars=200)
+        assert "`" not in out
+        # Backticks become single quotes.
+        assert "'" in out
+
+    def test_safe_mrkdwn_code_handles_none(self):
+        assert safe_mrkdwn_code(None) == ""
+
+    # ---- end-to-end rendering invariant ----
+
+    def _plan_with_huge_text(self) -> tuple[PlanResult, list[Finding]]:
+        # 10,000-char rationale + summary + sub-action rationale.
+        long_text = "rationale " + ("verbose-blob " * 1000)  # ~13k chars
+        f = _safe_finding(
+            False, pattern_id="006",
+            id="60000000-0006-4000-8000-000000000003",
+            evidence={"x": "y"},
+        )
+        step = PlanStep(
+            finding_id=f.id, pattern_id="006",
+            suggested_mode="dry_run",
+            monthly_impact_usd=32.4,
+            rationale=long_text,
+            order_rank=1,
+            recommended_sequence=[SubAction(
+                candidate_id="cand-s3",
+                action_kind="observe_and_reassess",
+                est_monthly_savings_usd=0.0,
+                evidence_tier="inferred",
+                rationale=long_text,
+            )],
+        )
+        plan = PlanResult(
+            plan_id="aaaaaaaa-1111-4000-8000-bbbbbbbbbbbb",
+            goal="g" * 5000,  # over MAX_GOAL_LEN
+            status="ok",
+            steps=[step],
+            dropped_steps=[],
+            total_monthly_impact_usd=32.4,
+            summary=long_text,
+            confidence=0.7,
+            prompt_template="savings_plan",
+            prompt_template_version="v2",
+            model="m", provider="p", boundary_crossed=False,
+            parse_retry_count=0, input_finding_ids=[f.id],
+        )
+        return plan, [f]
+
+    def _every_text_element_under_limit(self, blocks: list) -> None:
+        """Assert no block's text element exceeds Slack's hard limit."""
+        for i, block in enumerate(blocks):
+            block_type = block.get("type")
+            if block_type == "section":
+                txt = block.get("text", {}).get("text", "")
+                assert len(txt) <= SLACK_MAX_MRKDWN_CHARS, (
+                    f"block {i} (section) text is {len(txt)} chars > "
+                    f"{SLACK_MAX_MRKDWN_CHARS}"
+                )
+            elif block_type == "context":
+                for j, elem in enumerate(block.get("elements", [])):
+                    txt = elem.get("text", "")
+                    assert len(txt) <= SLACK_MAX_MRKDWN_CHARS, (
+                        f"block {i} (context) element {j} text is "
+                        f"{len(txt)} chars > {SLACK_MAX_MRKDWN_CHARS}"
+                    )
+            elif block_type == "header":
+                # plain_text header has a tighter limit (150).
+                txt = block.get("text", {}).get("text", "")
+                assert len(txt) <= 150, (
+                    f"block {i} (header) text is {len(txt)} chars > 150"
+                )
+
+    def test_huge_plan_text_clipped_per_field(self):
+        plan, findings = self._plan_with_huge_text()
+        r = to_renderable(plan, findings)
+        blocks = BlockKitPlanPresenter().render(r)
+        self._every_text_element_under_limit(blocks)
+        # Clipping must be visible — silent truncation would mislead users.
+        # `json.dumps` escapes the Unicode ellipsis to … so we
+        # assert on the ASCII marker "(clipped)" that follows it.
+        blocks_text = json.dumps(blocks)
+        assert "(clipped)" in blocks_text
+
+    @pytest.mark.parametrize("fixture_name", FIXTURES_WITH_RESPONSES)
+    def test_every_fixture_stays_under_text_limit(self, fixture_name):
+        # All shipped fixtures rendered today fit comfortably. This
+        # pins the invariant so a future fixture with verbose content
+        # surfaces a regression here rather than silently in production.
+        plan, findings, renderable, _text, blocks, _bt = \
+            _all_renderings(fixture_name)
+        self._every_text_element_under_limit(blocks)
+
+    def test_clipped_step_still_renders_mode_badge_and_button(self):
+        # Even when the rationale is clipped, the structural bits (mode
+        # badge, title, button if applicable) must survive — clipping
+        # the rationale doesn't lose the rest of the step's render.
+        f = _safe_finding(True)
+        step = PlanStep(
+            finding_id=f.id, pattern_id="001", suggested_mode="pr",
+            monthly_impact_usd=100.0,
+            rationale="x" * 10000,  # clipped to MAX_RATIONALE_LEN
+            order_rank=1,
+        )
+        r = to_renderable(_plan_with([step]), [f])
+        blocks = BlockKitPlanPresenter().render(r)
+        blocks_text = json.dumps(blocks)
+        assert "[pr]" in blocks_text
+        assert "(clipped)" in blocks_text  # json escapes the Unicode ellipsis
+        # PR-mode safe step still gets its button.
+        action_blocks = [b for b in blocks if b.get("type") == "actions"]
+        assert len(action_blocks) == 1
+
+
+# ---------------------------------------------------------------------------
+# Scan-surface verbose path: evidence dump goes through the same helpers
+# ---------------------------------------------------------------------------
+
+class TestVerboseEvidencePathHardened:
+    """The earlier escape pass missed the `verbose=True` evidence path
+    in `BlockKitPresenter.blocks_for_finding`. Evidence JSON can contain
+    user-controlled tag values and is interpolated into a code span,
+    so it needs angle-bracket escaping, backtick stripping, and length
+    clipping — same as every other untrusted Slack field on this surface.
+    """
+
+    def _verbose_blocks(self, evidence: dict, *, summary: str = "summary"):
+        from presenters import BlockKitPresenter
+        f = Finding(
+            id="10000000-0001-4000-8000-eeeeeeeeeeee",
+            resource_id="vol-1",
+            resource_type="EBS Volume",
+            region="us-east-1",
+            monthly_impact_usd=10.0,
+            summary=summary,
+            pattern_id="001",
+            risk_tier=RiskTier.MEDIUM,
+            confidence=0.9,
+            safe_to_fix=True,
+            evidence=evidence,
+        )
+        return BlockKitPresenter().blocks_for_finding(f, verbose=True)
+
+    def test_evidence_angle_brackets_escaped(self):
+        evidence = {"tag": "Name=<!channel>", "owner": "<@U_admin>"}
+        blocks = self._verbose_blocks(evidence)
+        blocks_text = json.dumps(blocks)
+        assert "<!channel>" not in blocks_text
+        assert "<@U_admin>" not in blocks_text
+        assert "&lt;!channel&gt;" in blocks_text
+        assert "&lt;@U_admin&gt;" in blocks_text
+
+    def test_evidence_backticks_stripped(self):
+        # A tag value containing a backtick would otherwise close the
+        # surrounding code span and let following content render as
+        # raw mrkdwn.
+        evidence = {"tag": "weird`name`"}
+        blocks = self._verbose_blocks(evidence)
+        # Find the evidence context block.
+        evidence_block_text = next(
+            elem["text"]
+            for b in blocks if b.get("type") == "context"
+            for elem in b.get("elements", [])
+            if "_Evidence:_" in elem.get("text", "")
+        )
+        # The wrapping single backticks remain; embedded backticks are
+        # replaced with single quotes.
+        assert evidence_block_text.startswith("_Evidence:_ `")
+        assert evidence_block_text.endswith("`")
+        inner = evidence_block_text[len("_Evidence:_ `"):-1]
+        assert "`" not in inner, (
+            f"embedded backtick leaked into evidence span: {inner!r}"
+        )
+
+    def test_evidence_clipped_when_huge(self):
+        # Build a giant evidence blob.
+        huge = {f"k{i}": "v" * 50 for i in range(500)}
+        blocks = self._verbose_blocks(huge)
+        evidence_block_text = next(
+            elem["text"]
+            for b in blocks if b.get("type") == "context"
+            for elem in b.get("elements", [])
+            if "_Evidence:_" in elem.get("text", "")
+        )
+        # The whole text element must stay under Slack's per-element limit.
+        assert len(evidence_block_text) <= SLACK_MAX_MRKDWN_CHARS
+        assert "… (clipped)" in evidence_block_text
+
+    def test_scan_explanation_clipped(self):
+        # Mirror check for the explanation field on the scan surface.
+        from presenters import BlockKitPresenter
+        f = Finding(
+            id="10000000-0001-4000-8000-ffffffffffff",
+            resource_id="vol-2",
+            resource_type="EBS Volume",
+            region="us-east-1",
+            monthly_impact_usd=10.0,
+            summary="s",
+            pattern_id="001",
+            risk_tier=RiskTier.MEDIUM,
+            confidence=0.9,
+            safe_to_fix=True,
+            evidence={},
+            explanation="LLM explanation " + ("verbose " * 1000),
+        )
+        blocks = BlockKitPresenter().blocks_for_finding(f)
+        # Find the explanation section (second section block).
+        section_texts = [
+            b["text"]["text"] for b in blocks if b.get("type") == "section"
+        ]
+        # Every section's text element fits.
+        for txt in section_texts:
+            assert len(txt) <= SLACK_MAX_MRKDWN_CHARS
+        assert any("… (clipped)" in t for t in section_texts)
+
+    def test_result_analysis_clipped(self):
+        from presenters import BlockKitPresenter, ScanResult
+        f = Finding(
+            id="10000000-0001-4000-8000-000000000aaa",
+            resource_id="vol-x", resource_type="EBS Volume",
+            region="us-east-1", monthly_impact_usd=10.0, summary="s",
+            pattern_id="001", risk_tier=RiskTier.LOW, confidence=0.9,
+            safe_to_fix=True, evidence={},
+        )
+        result = ScanResult.from_findings(
+            [f],
+            analysis="Analysis: " + ("paragraph " * 1000),
+        )
+        blocks = BlockKitPresenter().blocks_for_scan(result)
+        section_texts = [
+            b["text"]["text"] for b in blocks if b.get("type") == "section"
+        ]
+        for txt in section_texts:
+            assert len(txt) <= SLACK_MAX_MRKDWN_CHARS
+        # The analysis block specifically got clipped.
+        analysis_texts = [t for t in section_texts if "Analysis:" in t]
+        assert len(analysis_texts) == 1
+        assert "… (clipped)" in analysis_texts[0]
 

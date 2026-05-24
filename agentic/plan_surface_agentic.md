@@ -188,25 +188,62 @@ changes to step layout can't silently break the truncation math.
 ### Slack mrkdwn escaping
 
 Every untrusted text field interpolated into a Slack `mrkdwn` element
-passes through `escape_mrkdwn` (`src/presenters/_slack_text.py`),
-which applies Slack's documented entity escape for `&`, `<`, `>`.
-This breaks the three angle-bracket-based injection vectors —
-mentions (`<@USER>`), broadcasts (`<!channel>`), links
-(`<URL|label>`) — without disturbing legitimate mrkdwn formatting.
+passes through one of three helpers in `src/presenters/_slack_text.py`:
+
+| Helper | When to use |
+|---|---|
+| `escape_mrkdwn(text)` | Raw entity escape only. Internal building block; callers should prefer the composed helpers below. |
+| `safe_mrkdwn(text, max_chars)` | Escape + clip. The default for any untrusted field destined for a regular mrkdwn block. |
+| `safe_mrkdwn_code(text, max_chars)` | Escape + strip backticks + clip. Required when the field will sit inside an inline code span (`` ` ``) or triple-backtick fence — a stray backtick would otherwise close the surrounding span and re-introduce the injection vector. |
+
+The escape applies Slack's documented entity rules
+(https://api.slack.com/reference/surfaces/formatting#escaping):
+`&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`. This breaks the three
+angle-bracket-based injection vectors — mentions (`<@USER>`),
+broadcasts (`<!channel>`), links (`<URL|label>`) — without
+disturbing legitimate mrkdwn formatting (`*bold*`, `_italic_`, etc).
 
 Untrusted fields in the plan surface: `goal` (user slash-command
 input), `summary` / `rationale` / sub-action `rationale` (LLM output),
 `resource_id` / sub-action `candidate_id` (scanner output, may carry
-user-controlled tag content). The same helper is applied to the
-existing scan surface (`slack_blocks.py`) for `finding.explanation`,
-`finding.summary`, `finding.fix_command`, `finding.resource_*`,
-`finding.region`, and `result.analysis` — same threat model.
+user-controlled tag content; code-span variant). The same helpers
+apply on the scan surface (`slack_blocks.py`) for `finding.summary`,
+`finding.explanation`, `finding.fix_command`, `finding.resource_*`,
+`finding.region`, `finding.evidence` (verbose mode), and
+`result.analysis` — same threat model.
 
 CLI text rendering does NOT escape (angle brackets are not control
 characters in plain text), so the CLI keeps the original LLM/user
 text verbatim. Drift is acceptable here because the escape is
 invisible to humans on Slack and absent only where it would be
 useless.
+
+### Slack text-length budget (3000-char-per-text-element cap)
+
+The block-count cap (50) is necessary but not sufficient.
+`chat.postMessage` also rejects messages whose individual `mrkdwn`
+text elements exceed ~3000 characters — same `invalid_blocks` failure
+mode, same silent disappearance if the renderer doesn't enforce it.
+
+Each untrusted field has a per-field budget defined as a constant
+near the top of the presenter module. Budgets sum to under
+`SLACK_MAX_MRKDWN_CHARS` per composed block once decorators (titles,
+prefixes, separators) are counted. `safe_mrkdwn` and `safe_mrkdwn_code`
+do the clipping; the test class `TestSlackTextLengthBudget` pins the
+invariant that every shipped fixture's rendered blocks stay under the
+hard limit, plus a parameterized check over all eval fixtures so a
+future verbose fixture surfaces a regression in CI rather than in
+production.
+
+Clipping appends `… (clipped)` so truncation is visible — silent
+truncation would mislead users into thinking they're reading the whole
+rationale. The clipper walks back from the cut point if it lands
+inside an HTML entity, so post-escape content like `&am…` never
+reaches Slack as a malformed entity prefix.
+
+The CLI text path is unbounded — operators running `whisper-plan`
+locally see the full rationale verbatim. Only the Slack surface
+clips, because only Slack rejects oversize messages.
 
 ## What's deferred to later PRs
 

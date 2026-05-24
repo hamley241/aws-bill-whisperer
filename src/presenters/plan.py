@@ -53,7 +53,12 @@ if str(_SRC) not in sys.path:
 
 from agent.modes import AvailableModesResolver  # noqa: E402
 
-from ._slack_text import escape_mrkdwn  # noqa: E402
+from ._slack_text import (  # noqa: E402
+    SLACK_MAX_MRKDWN_CHARS,
+    escape_mrkdwn,
+    safe_mrkdwn,
+    safe_mrkdwn_code,
+)
 
 if TYPE_CHECKING:
     from agent.schemas import PlanResult
@@ -73,6 +78,20 @@ DEFAULT_GOAL_ECHO = "(default: rank by impact and risk)"
 # footer pointing at the CLI — degraded but correct (see
 # agentic/plan_surface_agentic.md).
 SLACK_MAX_BLOCKS = 50
+
+# Per-field length budgets for Slack mrkdwn elements. Each block we
+# render must keep its composed text under SLACK_MAX_MRKDWN_CHARS
+# (3000). The budgets below sum to under that limit per block once
+# decorators (titles, prefixes, separators) are included — see the
+# composition arithmetic in TestSlackTextLengthBudget. LLM responses
+# routinely run long; clipping makes truncation visible to the user
+# rather than silently dropping the message.
+MAX_GOAL_LEN = 500
+MAX_SUMMARY_LEN = 2400
+MAX_RATIONALE_LEN = 2500
+MAX_SUB_RATIONALE_LEN = 1500
+MAX_RESOURCE_ID_LEN = 200
+MAX_CANDIDATE_ID_LEN = 200
 
 
 def mode_badge(mode: str) -> str:
@@ -459,6 +478,11 @@ class BlockKitPlanPresenter:
         return head + shown_blocks + truncation_footer + dropped_footer
 
     def _head_blocks(self, plan: RenderablePlan) -> list[dict[str, Any]]:
+        # Goal and summary are user / LLM input — escape angle brackets
+        # AND clip to per-field budgets so the composed section text
+        # stays under SLACK_MAX_MRKDWN_CHARS even with verbose LLM output.
+        safe_goal = safe_mrkdwn(_goal_echo(plan.goal), MAX_GOAL_LEN)
+        safe_summary = safe_mrkdwn(plan.summary, MAX_SUMMARY_LEN)
         return [
             {
                 "type": "header",
@@ -479,11 +503,7 @@ class BlockKitPlanPresenter:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    # Goal and summary are user / LLM input → escape.
-                    "text": (
-                        f"_Goal:_ {escape_mrkdwn(_goal_echo(plan.goal))}\n"
-                        f"{escape_mrkdwn(plan.summary)}"
-                    ),
+                    "text": f"_Goal:_ {safe_goal}\n{safe_summary}",
                 },
             },
         ]
@@ -516,8 +536,8 @@ class BlockKitPlanPresenter:
     def _render_step_blocks(self, step: RenderablePlanStep) -> list[dict[str, Any]]:
         observe_hint = "  _(observe-only)_" if step.mode == "dry_run" else ""
         # resource_id can carry user-controlled content (AWS tag-driven
-        # naming) — escape even though it lives inside a code span.
-        safe_resource = escape_mrkdwn(step.resource_id)
+        # naming) — escape AND strip backticks since it lives in a code span.
+        safe_resource = safe_mrkdwn_code(step.resource_id, MAX_RESOURCE_ID_LEN)
         title = (
             f"*{step.order_rank}. {step.mode_label} p{step.pattern_id} — "
             f"`{safe_resource}` — ${step.monthly_impact_usd:.2f}/mo*"
@@ -528,22 +548,23 @@ class BlockKitPlanPresenter:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    # Rationale is LLM output → escape.
-                    "text": f"{title}\n{escape_mrkdwn(step.rationale)}",
+                    # Rationale is LLM output → escape + clip to per-field budget.
+                    "text": f"{title}\n{safe_mrkdwn(step.rationale, MAX_RATIONALE_LEN)}",
                 },
             }
         ]
         for sa in step.sub_actions:
             hedge = _sub_action_hedge(sa)
-            # action_kind is a closed enum (safe); candidate_id and
-            # rationale are LLM-influenced → escape.
+            # action_kind is a closed enum (safe); candidate_id is in a
+            # code span (escape + strip backticks); rationale is mrkdwn.
             out.append({
                 "type": "context",
                 "elements": [{
                     "type": "mrkdwn",
                     "text": (
-                        f"_{sa.action_kind}_  `{escape_mrkdwn(sa.candidate_id)}`  "
-                        f"{hedge}\n{escape_mrkdwn(sa.rationale)}"
+                        f"_{sa.action_kind}_  "
+                        f"`{safe_mrkdwn_code(sa.candidate_id, MAX_CANDIDATE_ID_LEN)}`  "
+                        f"{hedge}\n{safe_mrkdwn(sa.rationale, MAX_SUB_RATIONALE_LEN)}"
                     ),
                 }],
             })
