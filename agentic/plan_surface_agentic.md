@@ -168,6 +168,46 @@ without touching the renderer.
   render (e.g. "showing 5 of 12 steps; see CLI for the rest") is the
   right answer.
 
+## Defensive contracts
+
+### Slack block budget (50-block cap)
+
+`chat.postMessage` rejects messages above 50 blocks with
+`invalid_blocks`. The renderer enforces the cap by pre-computing total
+block cost and, when over budget, truncating tail steps to fit. A
+trailing "X more step(s) totaling $Y/mo not shown — run `whisper-plan`
+for the full plan" footer points users at the CLI for the unbounded
+view. Order-rank ordering is preserved (shown steps are always the
+lowest order_ranks); canonical totals are NOT re-summed from shown
+steps (the rendered total stays the planner's value).
+
+`step_block_cost(step)` is the public budget primitive. A unit test
+pins `step_block_cost(s) == len(_step_section_blocks(s))` so future
+changes to step layout can't silently break the truncation math.
+
+### Slack mrkdwn escaping
+
+Every untrusted text field interpolated into a Slack `mrkdwn` element
+passes through `escape_mrkdwn` (`src/presenters/_slack_text.py`),
+which applies Slack's documented entity escape for `&`, `<`, `>`.
+This breaks the three angle-bracket-based injection vectors —
+mentions (`<@USER>`), broadcasts (`<!channel>`), links
+(`<URL|label>`) — without disturbing legitimate mrkdwn formatting.
+
+Untrusted fields in the plan surface: `goal` (user slash-command
+input), `summary` / `rationale` / sub-action `rationale` (LLM output),
+`resource_id` / sub-action `candidate_id` (scanner output, may carry
+user-controlled tag content). The same helper is applied to the
+existing scan surface (`slack_blocks.py`) for `finding.explanation`,
+`finding.summary`, `finding.fix_command`, `finding.resource_*`,
+`finding.region`, and `result.analysis` — same threat model.
+
+CLI text rendering does NOT escape (angle brackets are not control
+characters in plain text), so the CLI keeps the original LLM/user
+text verbatim. Drift is acceptable here because the escape is
+invisible to humans on Slack and absent only where it would be
+useless.
+
 ## What's deferred to later PRs
 
 - Threaded follow-up Q&A on plans (the thread store will carry the

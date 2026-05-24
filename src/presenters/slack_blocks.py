@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from ._slack_text import escape_mrkdwn
 from .base import FindingPresenter, ScanResult
 
 if TYPE_CHECKING:
@@ -53,28 +54,34 @@ class BlockKitPresenter(FindingPresenter):
     def blocks_for_finding(self, finding: "Finding", *,
                            verbose: bool = False) -> list[dict[str, Any]]:
         emoji = _RISK_EMOJI.get(finding.risk_tier.value, "⚪️")
+        # resource_type/resource_id/region come from AWS but can carry
+        # user-controlled tag content — escape defensively.
         title = (
-            f"*{emoji} {finding.resource_type} `{finding.resource_id}`* "
+            f"*{emoji} {escape_mrkdwn(finding.resource_type)} "
+            f"`{escape_mrkdwn(finding.resource_id)}`* "
             f"— *${finding.monthly_impact_usd:.2f}/mo*"
         )
         meta = (
-            f"_Region: `{finding.region}` · "
+            f"_Region: `{escape_mrkdwn(finding.region)}` · "
             f"Risk: *{finding.risk_tier.value}* · "
             f"Confidence: {finding.confidence:.0%}_"
         )
         blocks: list[dict[str, Any]] = [
             {"type": "section",
-             "text": {"type": "mrkdwn", "text": f"{title}\n{meta}\n{finding.summary}"}},
+             "text": {"type": "mrkdwn",
+                      "text": f"{title}\n{meta}\n{escape_mrkdwn(finding.summary)}"}},
         ]
         if finding.explanation:
+            # LLM-generated — highest-risk injection vector.
             blocks.append({
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": finding.explanation},
+                "text": {"type": "mrkdwn", "text": escape_mrkdwn(finding.explanation)},
             })
         if finding.fix_command:
             blocks.append({
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*Fix*\n```{finding.fix_command}```"},
+                "text": {"type": "mrkdwn",
+                         "text": f"*Fix*\n```{escape_mrkdwn(finding.fix_command)}```"},
             })
 
         actions: list[dict[str, Any]] = []
@@ -120,7 +127,10 @@ class BlockKitPresenter(FindingPresenter):
             blocks.append({"type": "divider"})
             blocks.append({
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": result.analysis},
+                # analysis is the LLM narrative — escape angle brackets so
+                # a prompt-injected narrative can't fake mentions, broadcasts,
+                # or deceptive links inside a shared Slack channel.
+                "text": {"type": "mrkdwn", "text": escape_mrkdwn(result.analysis)},
             })
 
         if not result.findings:

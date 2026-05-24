@@ -53,6 +53,8 @@ if str(_SRC) not in sys.path:
 
 from agent.modes import AvailableModesResolver  # noqa: E402
 
+from ._slack_text import escape_mrkdwn  # noqa: E402
+
 if TYPE_CHECKING:
     from agent.schemas import PlanResult
     from patterns.base import Finding
@@ -64,6 +66,13 @@ RENDERABLE_SCHEMA_VERSION = "1"
 
 # Default goal echo when the planner used DEFAULT_GOAL.
 DEFAULT_GOAL_ECHO = "(default: rank by impact and risk)"
+
+# Slack hard limit per chat.postMessage call. Exceeding this returns
+# `invalid_blocks` and the message is rejected. The renderer enforces
+# the limit by truncating tail steps and emitting a "more not shown"
+# footer pointing at the CLI — degraded but correct (see
+# agentic/plan_surface_agentic.md).
+SLACK_MAX_BLOCKS = 50
 
 
 def mode_badge(mode: str) -> str:
@@ -405,7 +414,52 @@ class BlockKitPlanPresenter:
         ]
 
     def _render_ok(self, plan: RenderablePlan) -> list[dict[str, Any]]:
-        blocks: list[dict[str, Any]] = [
+        head = self._head_blocks(plan)
+        dropped_footer = self._dropped_footer_blocks(plan)
+        step_sections = [self._step_section_blocks(s) for s in plan.steps]
+        full_step_blocks = [b for sec in step_sections for b in sec]
+
+        naive_total = len(head) + len(full_step_blocks) + len(dropped_footer)
+        if naive_total <= SLACK_MAX_BLOCKS:
+            return head + full_step_blocks + dropped_footer
+
+        # Truncate. Reserve space for the truncation footer (2 blocks:
+        # divider + context) so the user knows the rest exists.
+        truncation_footer_size = 2
+        budget = (
+            SLACK_MAX_BLOCKS
+            - len(head)
+            - len(dropped_footer)
+            - truncation_footer_size
+        )
+        shown_blocks: list[dict[str, Any]] = []
+        shown_count = 0
+        for sec in step_sections:
+            if len(shown_blocks) + len(sec) > budget:
+                break
+            shown_blocks.extend(sec)
+            shown_count += 1
+
+        tail = plan.steps[shown_count:]
+        tail_impact = sum(s.monthly_impact_usd for s in tail)
+        truncation_footer = [
+            {"type": "divider"},
+            {
+                "type": "context",
+                "elements": [{
+                    "type": "mrkdwn",
+                    "text": (
+                        f"_{len(tail)} more step(s) totaling "
+                        f"${tail_impact:.2f}/mo not shown — run "
+                        "`whisper-plan` for the full plan._"
+                    ),
+                }],
+            },
+        ]
+        return head + shown_blocks + truncation_footer + dropped_footer
+
+    def _head_blocks(self, plan: RenderablePlan) -> list[dict[str, Any]]:
+        return [
             {
                 "type": "header",
                 "text": {"type": "plain_text", "text": "AWS Bill Whisperer — Plan"},
@@ -425,18 +479,21 @@ class BlockKitPlanPresenter:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"_Goal:_ {_goal_echo(plan.goal)}\n{plan.summary}",
+                    # Goal and summary are user / LLM input → escape.
+                    "text": (
+                        f"_Goal:_ {escape_mrkdwn(_goal_echo(plan.goal))}\n"
+                        f"{escape_mrkdwn(plan.summary)}"
+                    ),
                 },
             },
         ]
 
-        for step in plan.steps:
-            blocks.append({"type": "divider"})
-            blocks.extend(self._render_step_blocks(step))
-
-        if plan.dropped_step_count > 0:
-            blocks.append({"type": "divider"})
-            blocks.append({
+    def _dropped_footer_blocks(self, plan: RenderablePlan) -> list[dict[str, Any]]:
+        if plan.dropped_step_count <= 0:
+            return []
+        return [
+            {"type": "divider"},
+            {
                 "type": "context",
                 "elements": [{
                     "type": "mrkdwn",
@@ -445,38 +502,55 @@ class BlockKitPlanPresenter:
                         "and were excluded._"
                     ),
                 }],
-            })
+            },
+        ]
 
-        return blocks
+    def _step_section_blocks(self, step: RenderablePlanStep) -> list[dict[str, Any]]:
+        """All blocks for one step including the leading divider.
+
+        Length must match `step_block_cost(step)` so the truncation
+        budget math is exact.
+        """
+        return [{"type": "divider"}, *self._render_step_blocks(step)]
 
     def _render_step_blocks(self, step: RenderablePlanStep) -> list[dict[str, Any]]:
         observe_hint = "  _(observe-only)_" if step.mode == "dry_run" else ""
+        # resource_id can carry user-controlled content (AWS tag-driven
+        # naming) — escape even though it lives inside a code span.
+        safe_resource = escape_mrkdwn(step.resource_id)
         title = (
             f"*{step.order_rank}. {step.mode_label} p{step.pattern_id} — "
-            f"`{step.resource_id}` — ${step.monthly_impact_usd:.2f}/mo*"
+            f"`{safe_resource}` — ${step.monthly_impact_usd:.2f}/mo*"
             f"{observe_hint}"
         )
         out: list[dict[str, Any]] = [
             {
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": f"{title}\n{step.rationale}"},
+                "text": {
+                    "type": "mrkdwn",
+                    # Rationale is LLM output → escape.
+                    "text": f"{title}\n{escape_mrkdwn(step.rationale)}",
+                },
             }
         ]
         for sa in step.sub_actions:
             hedge = _sub_action_hedge(sa)
+            # action_kind is a closed enum (safe); candidate_id and
+            # rationale are LLM-influenced → escape.
             out.append({
                 "type": "context",
                 "elements": [{
                     "type": "mrkdwn",
                     "text": (
-                        f"_{sa.action_kind}_  `{sa.candidate_id}`  {hedge}\n"
-                        f"{sa.rationale}"
+                        f"_{sa.action_kind}_  `{escape_mrkdwn(sa.candidate_id)}`  "
+                        f"{hedge}\n{escape_mrkdwn(sa.rationale)}"
                     ),
                 }],
             })
         # PR-only button. Command and api_call modes are text-only in PR #8.
         # The button reuses the existing open_pr action_id so the existing
-        # actions.py handler picks it up unchanged.
+        # actions.py handler picks it up unchanged. The button's `value`
+        # field is finding_id (deterministic UUID), no escaping needed.
         if step.is_safe_executable and step.mode == "pr":
             out.append({
                 "type": "actions",
@@ -489,3 +563,19 @@ class BlockKitPlanPresenter:
                 }],
             })
         return out
+
+
+def step_block_cost(step: RenderablePlanStep) -> int:
+    """Block count contributed by one step including its leading divider.
+
+    Public so tests can pin the budget math. Mirrors the structure of
+    `BlockKitPlanPresenter._step_section_blocks`:
+      - 1 divider
+      - 1 section (title + rationale)
+      - N sub-action context blocks
+      - +1 actions block iff is_safe_executable AND mode == "pr"
+    """
+    cost = 2 + len(step.sub_actions)
+    if step.is_safe_executable and step.mode == "pr":
+        cost += 1
+    return cost

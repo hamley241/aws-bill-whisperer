@@ -41,12 +41,66 @@ from agent.evals.runner import _finding_from_dict  # noqa: E402 — internal reu
 from agent.planner import SavingsPlanner  # noqa: E402
 from config import load_config  # noqa: E402
 from llm import make_llm_client  # noqa: E402
+from patterns.base import Finding  # noqa: E402
 from presenters.plan import (  # noqa: E402
     JSONPlanPresenter,
     TextPlanPresenter,
     to_renderable,
 )
 from storage import WhisperRepository, default_repository  # noqa: E402
+
+
+class _BadInput(Exception):
+    """Bad-input signal → CLI exit code 2.
+
+    Internal to this module; carries a clean message intended for stderr.
+    Wraps the underlying exception so the original traceback is available
+    when --no-trace is off and the user wants to diagnose.
+    """
+
+
+def _load_findings(path: Path) -> list[Finding]:
+    """Load, decode, and hydrate findings from a JSON file.
+
+    Raises `_BadInput` (caught in main → exit 2) for any of:
+      - file missing or unreadable
+      - malformed JSON
+      - top-level value is not a list
+      - an item is not a dict
+      - an item is missing required Finding fields or has invalid values
+        (e.g. unknown risk_tier)
+
+    Returning a clean error on any of these paths makes the CLI behavior
+    match the docstring's exit-code contract.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as e:
+        raise _BadInput(f"{path}: file not found") from e
+    except OSError as e:
+        raise _BadInput(f"{path}: failed to read ({e})") from e
+
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise _BadInput(f"{path}: malformed JSON ({e})") from e
+
+    if not isinstance(raw, list):
+        raise _BadInput(f"{path}: expected a JSON list of finding dicts")
+
+    findings: list[Finding] = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise _BadInput(
+                f"{path}: item {i} is a {type(item).__name__}, expected dict"
+            )
+        try:
+            findings.append(_finding_from_dict(item))
+        except (TypeError, ValueError, KeyError, AttributeError) as e:
+            raise _BadInput(
+                f"{path}: item {i} failed to hydrate as Finding ({e})"
+            ) from e
+    return findings
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,11 +139,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    raw = json.loads(args.findings_path.read_text(encoding="utf-8"))
-    if not isinstance(raw, list):
-        print(f"{args.findings_path}: expected a JSON list", file=sys.stderr)
+    try:
+        findings = _load_findings(args.findings_path)
+    except _BadInput as e:
+        print(str(e), file=sys.stderr)
         return 2
-    findings = [_finding_from_dict(f) for f in raw]
 
     config = load_config()
     repository: WhisperRepository | None

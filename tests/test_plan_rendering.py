@@ -57,14 +57,17 @@ from agent.schemas import (  # noqa: E402
     SubAction,
 )
 from patterns.base import Finding, RiskTier  # noqa: E402
+from presenters._slack_text import escape_mrkdwn  # noqa: E402
 from presenters._verb_lists import HEDGED_VERBS, UNHEDGED_VERBS  # noqa: E402
 from presenters.plan import (  # noqa: E402
     RENDERABLE_SCHEMA_VERSION,
+    SLACK_MAX_BLOCKS,
     BlockKitPlanPresenter,
     JSONPlanPresenter,
     RenderablePlan,
     TextPlanPresenter,
     mode_badge,
+    step_block_cost,
     to_renderable,
 )
 from slack.handlers.plan import parse_goal  # noqa: E402
@@ -792,3 +795,278 @@ class TestGoalParsing:
     def test_goal_preserves_case_in_text(self):
         # The prefix is case-insensitive; the goal TEXT is preserved verbatim.
         assert parse_goal("goal: Cut PROD spend") == "Cut PROD spend"
+
+
+# ---------------------------------------------------------------------------
+# Block Kit budget — Slack's 50-block ceiling
+# ---------------------------------------------------------------------------
+
+class TestSlackBlockBudget:
+    """Slack rejects messages with > 50 blocks (`invalid_blocks`).
+    The renderer must enforce the limit by truncating tail steps and
+    showing a "X more not shown — run whisper-plan" footer. Without
+    this, a large plan disappears entirely from Slack while the user
+    sees only the "Planning…" parent message."""
+
+    def _many_step_plan(self, n: int) -> tuple[PlanResult, list[Finding]]:
+        findings: list[Finding] = []
+        steps: list[PlanStep] = []
+        for i in range(n):
+            fid = f"00000000-0001-4000-8000-{i:012d}"
+            findings.append(Finding(
+                id=fid,
+                resource_id=f"vol-{i:03d}",
+                resource_type="EBS Volume",
+                region="us-east-1",
+                monthly_impact_usd=10.0,
+                summary=f"finding {i}",
+                pattern_id="001",
+                risk_tier=RiskTier.MEDIUM,
+                confidence=0.9,
+                safe_to_fix=True,
+                evidence={"terraform_managed": True},
+            ))
+            steps.append(PlanStep(
+                finding_id=fid, pattern_id="001",
+                suggested_mode="pr", monthly_impact_usd=10.0,
+                rationale=f"step {i}", order_rank=i + 1,
+            ))
+        return _plan_with(steps), findings
+
+    def test_step_block_cost_matches_section_helper_output(self):
+        # The truncation budget depends on step_block_cost being exactly
+        # equal to len(_step_section_blocks(step)). Pin it.
+        f = _safe_finding(True)
+        step_pr = PlanStep(
+            finding_id=f.id, pattern_id="001", suggested_mode="pr",
+            monthly_impact_usd=10.0, rationale="r", order_rank=1,
+        )
+        step_dry = PlanStep(
+            finding_id=f.id, pattern_id="001", suggested_mode="dry_run",
+            monthly_impact_usd=10.0, rationale="r", order_rank=2,
+            recommended_sequence=[SubAction(
+                candidate_id="c", action_kind="observe_and_reassess",
+                est_monthly_savings_usd=0.0, evidence_tier="inferred",
+                rationale="r",
+            )],
+        )
+        r = to_renderable(_plan_with([step_pr, step_dry]), [f])
+        presenter = BlockKitPlanPresenter()
+        for rstep in r.steps:
+            sec = presenter._step_section_blocks(rstep)
+            assert len(sec) == step_block_cost(rstep), (
+                f"step_block_cost({rstep.mode}) mismatch: "
+                f"helper said {step_block_cost(rstep)}, "
+                f"actual blocks {len(sec)}"
+            )
+
+    def test_small_plan_fits_no_truncation_footer(self):
+        # Sanity: a small plan renders without the truncation footer.
+        plan, findings = self._many_step_plan(3)
+        r = to_renderable(plan, findings)
+        blocks = BlockKitPlanPresenter().render(r)
+        blocks_text = json.dumps(blocks)
+        assert len(blocks) <= SLACK_MAX_BLOCKS
+        assert "not shown" not in blocks_text
+
+    def test_large_plan_truncates_and_stays_under_slack_limit(self):
+        # A 30-step PR-mode plan would otherwise produce
+        # 3 head + 30*(2 divider+section + 1 button) = 3 + 90 = 93 blocks.
+        # The renderer must cap output at SLACK_MAX_BLOCKS (50).
+        plan, findings = self._many_step_plan(30)
+        r = to_renderable(plan, findings)
+        blocks = BlockKitPlanPresenter().render(r)
+        assert len(blocks) <= SLACK_MAX_BLOCKS, (
+            f"renderer produced {len(blocks)} blocks; Slack rejects > "
+            f"{SLACK_MAX_BLOCKS}"
+        )
+        blocks_text = json.dumps(blocks)
+        assert "not shown" in blocks_text, (
+            "truncated plan must surface a 'more not shown' footer "
+            "so users can find the rest via the CLI"
+        )
+        assert "whisper-plan" in blocks_text, (
+            "truncation footer should point users at the CLI"
+        )
+
+    def test_truncation_preserves_canonical_total(self):
+        # Even when truncating, the rendered total is the canonical
+        # planner total — NOT a re-sum of just the shown steps.
+        plan, findings = self._many_step_plan(30)
+        r = to_renderable(plan, findings)
+        blocks_text = json.dumps(BlockKitPlanPresenter().render(r))
+        canonical = f"${plan.total_monthly_impact_usd:.2f}"
+        assert canonical in blocks_text
+
+    def test_truncation_preserves_order_rank_ordering(self):
+        # The shown steps must be the LOWEST order_ranks — never the
+        # last few. Surface a regression if a future refactor accidentally
+        # sorts differently.
+        plan, findings = self._many_step_plan(30)
+        r = to_renderable(plan, findings)
+        blocks_text = json.dumps(BlockKitPlanPresenter().render(r))
+        # The very first order_rank must appear; the very last must not.
+        assert "1. [pr]" in blocks_text
+        assert "30. [pr]" not in blocks_text
+
+    def test_truncation_keeps_dropped_footer_when_present(self):
+        # Big plan + dropped emissions: both footers fit under the cap.
+        plan, findings = self._many_step_plan(30)
+        plan.dropped_steps.append(DroppedStep(
+            raw_emission={"finding_id": "ghost"},
+            reason=DropReason.UNKNOWN_FINDING_ID.value,
+            validator="validator",
+        ))
+        r = to_renderable(plan, findings)
+        blocks = BlockKitPlanPresenter().render(r)
+        blocks_text = json.dumps(blocks)
+        assert len(blocks) <= SLACK_MAX_BLOCKS
+        assert "not shown" in blocks_text          # truncation footer
+        assert "failed validation" in blocks_text  # dropped footer
+
+
+# ---------------------------------------------------------------------------
+# Slack mrkdwn injection escaping
+# ---------------------------------------------------------------------------
+
+class TestSlackMrkdwnEscaping:
+    """Slack's mrkdwn treats `<@U…>`, `<!channel>`, `<URL|label>` as
+    control sequences. The plan surface interpolates LLM-generated and
+    user-provided text into mrkdwn fields, so every untrusted field
+    must be escaped before rendering — otherwise a prompt-injected
+    rationale can fake a channel ping, impersonate a mention, or embed
+    a deceptive link in a shared channel.
+
+    These tests verify the angle-bracket escape applies to every
+    untrusted field path. CLI text is unaffected by the issue; assertions
+    here target Slack Block Kit specifically.
+    """
+
+    def test_escape_mrkdwn_helper_is_pure(self):
+        assert escape_mrkdwn("plain") == "plain"
+        assert escape_mrkdwn("a & b") == "a &amp; b"
+        assert escape_mrkdwn("<@U123>") == "&lt;@U123&gt;"
+        assert escape_mrkdwn("<!channel>") == "&lt;!channel&gt;"
+        assert escape_mrkdwn("<https://evil.example|click>") == \
+            "&lt;https://evil.example|click&gt;"
+        # & is escaped first so subsequent < and > replacements don't
+        # double-escape the resulting &lt; / &gt; sequences.
+        assert escape_mrkdwn("<a&b>") == "&lt;a&amp;b&gt;"
+        # Defensive: None and non-strings are coerced safely.
+        assert escape_mrkdwn(None) == ""
+        assert escape_mrkdwn(42) == "42"
+
+    def _plan_with_injected_text(self):
+        f = Finding(
+            id="10000000-0001-4000-8000-aaaaaaaaaaaa",
+            resource_id="vol-<@U_admin>",  # injected resource_id
+            resource_type="EBS Volume",
+            region="us-east-1",
+            monthly_impact_usd=100.0,
+            summary="injected",
+            pattern_id="001",
+            risk_tier=RiskTier.MEDIUM,
+            confidence=0.9,
+            safe_to_fix=True,
+            evidence={"terraform_managed": True},
+        )
+        step = PlanStep(
+            finding_id=f.id, pattern_id="001", suggested_mode="pr",
+            monthly_impact_usd=100.0,
+            rationale="Recommend <!channel> review and <https://evil.example|trust>",
+            order_rank=1,
+        )
+        plan = PlanResult(
+            plan_id="11111111-2222-4000-8000-333333333333",
+            goal="cut <@U_admin> spend & more",
+            status="ok",
+            steps=[step],
+            dropped_steps=[],
+            total_monthly_impact_usd=100.0,
+            summary="<!here> Plan summary <link>",
+            confidence=0.7,
+            prompt_template="savings_plan",
+            prompt_template_version="v2",
+            model="m", provider="p", boundary_crossed=False,
+            parse_retry_count=0, input_finding_ids=[],
+        )
+        return plan, [f]
+
+    def test_rationale_angle_brackets_escaped(self):
+        plan, findings = self._plan_with_injected_text()
+        r = to_renderable(plan, findings)
+        blocks_text = json.dumps(BlockKitPlanPresenter().render(r))
+        # Raw control sequences must NOT appear in the rendered output.
+        assert "<!channel>" not in blocks_text
+        assert "<https://evil.example|trust>" not in blocks_text
+        # Escaped forms MUST appear.
+        assert "&lt;!channel&gt;" in blocks_text
+        assert "&lt;https://evil.example|trust&gt;" in blocks_text
+
+    def test_goal_angle_brackets_escaped(self):
+        plan, findings = self._plan_with_injected_text()
+        r = to_renderable(plan, findings)
+        blocks_text = json.dumps(BlockKitPlanPresenter().render(r))
+        assert "<@U_admin>" not in blocks_text
+        # Both < and & escaped (& first so it doesn't double-escape).
+        assert "&lt;@U_admin&gt;" in blocks_text
+        assert "&amp;" in blocks_text
+
+    def test_summary_angle_brackets_escaped(self):
+        plan, findings = self._plan_with_injected_text()
+        r = to_renderable(plan, findings)
+        blocks_text = json.dumps(BlockKitPlanPresenter().render(r))
+        assert "<!here>" not in blocks_text
+        assert "&lt;!here&gt;" in blocks_text
+        assert "<link>" not in blocks_text
+        assert "&lt;link&gt;" in blocks_text
+
+    def test_resource_id_angle_brackets_escaped(self):
+        # resource_id lives inside a code span but Slack still parses
+        # mention syntax — escape defensively.
+        plan, findings = self._plan_with_injected_text()
+        r = to_renderable(plan, findings)
+        blocks_text = json.dumps(BlockKitPlanPresenter().render(r))
+        assert "vol-<@U_admin>" not in blocks_text
+        assert "vol-&lt;@U_admin&gt;" in blocks_text
+
+    def test_sub_action_angle_brackets_escaped(self):
+        f = Finding(
+            id="60000000-0006-4000-8000-aaaaaaaaaaaa",
+            resource_id="nat-1", resource_type="NAT Gateway",
+            region="us-east-1", monthly_impact_usd=32.4, summary="nat",
+            pattern_id="006", risk_tier=RiskTier.LOW, confidence=0.6,
+            safe_to_fix=False,
+        )
+        step = PlanStep(
+            finding_id=f.id, pattern_id="006", suggested_mode="dry_run",
+            monthly_impact_usd=32.4,
+            rationale="observe dry_run before acting",
+            order_rank=1,
+            recommended_sequence=[SubAction(
+                candidate_id="<@U_admin>",
+                action_kind="observe_and_reassess",
+                est_monthly_savings_usd=0.0,
+                evidence_tier="inferred",
+                rationale="ping <!here> if unsure",
+            )],
+        )
+        plan = _plan_with([step])
+        r = to_renderable(plan, [f])
+        blocks_text = json.dumps(BlockKitPlanPresenter().render(r))
+        assert "<@U_admin>" not in blocks_text
+        assert "<!here>" not in blocks_text
+        assert "&lt;@U_admin&gt;" in blocks_text
+        assert "&lt;!here&gt;" in blocks_text
+
+    def test_cli_text_is_not_escaped(self):
+        # The CLI text surface is plain text — angle brackets are not
+        # control characters there. Escape applies only to Slack mrkdwn.
+        plan, findings = self._plan_with_injected_text()
+        r = to_renderable(plan, findings)
+        text = TextPlanPresenter().render(r)
+        # CLI keeps the original input verbatim (still safe — terminals
+        # don't interpret angle brackets as control).
+        assert "<!here>" in text
+        assert "<@U_admin>" in text
+
