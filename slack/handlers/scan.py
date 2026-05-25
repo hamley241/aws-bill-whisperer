@@ -31,7 +31,7 @@ from analyzer.explainer import explain_findings  # noqa: E402
 from presenters import BlockKitPresenter, ScanResult  # noqa: E402
 
 from ..scanner import run_scan  # noqa: E402
-from ..thread_store import get_store  # noqa: E402
+from ..thread_store import get_store, new_thread_context  # noqa: E402
 from . import plan as plan_handler  # noqa: E402
 
 
@@ -163,8 +163,10 @@ def _run_and_post(config, client, channel: str, parent_ts: str, logger) -> None:
     _safe_post(client, channel, parent_ts, text=fallback, blocks=blocks, logger=logger)
 
     # Remember the thread so message + app_mention handlers can answer
-    # follow-up questions with scan context.
-    get_store().set(parent_ts, result)
+    # follow-up questions with scan context. Wrap in ThreadContext so the
+    # plan-thread Q&A path (PR #9) sees a uniform shape — scan-only
+    # threads simply carry plan_result=None.
+    get_store().set(parent_ts, new_thread_context(result))
 
 
 def _safe_post(client, channel: str, thread_ts: str, *,

@@ -1,0 +1,10 @@
+{
+  "responses": [
+    "{\n  \"answer\": \"The NAT step (nat-cross-dev at $32.40/mo) is the only dev-tagged item in this plan, and it's already dry_run so it does nothing until you act on it. The compute and storage steps don't carry an explicit dev tag in this scan, so I can't filter the plan to dev for you here. If you want a dev-only plan, run /whisper plan goal: dev only in the channel and the planner will rank against that goal directly.\",\n  \"cited_finding_ids\": [\"60000000-0006-4000-8000-000000000030\"],\n  \"is_in_scope\": true,\n  \"scope_category\": null,\n  \"implies_action_taken\": false\n}\n"
+  ],
+  "metadata": {
+    "prompt_template": "plan_thread_reply",
+    "prompt_template_version": "v1",
+    "note": "The LLM correctly redirects the user to /whisper plan rather than pretending to re-rank or re-plan in-thread. The conversation layer never invokes the planner."
+  }
+}

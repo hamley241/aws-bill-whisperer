@@ -42,6 +42,14 @@ class WhisperConfig:
     slack_webhook: str | None = None
     prompt_log_path: str = str(DEFAULT_PROMPT_LOG_PATH)
     analysis_days: int = 30
+    # Plan-thread freshness tiers. The conversation layer reads these to
+    # decide whether a follow-up question against a cached plan gets a
+    # normal answer, an aging footer, a stale-warning prefix, or a hard
+    # refusal. The defaults map to the user-visible trust contract
+    # documented in agentic/plan_thread_qa_agentic.md.
+    plan_thread_freshness_aging_after_min: int = 30
+    plan_thread_freshness_stale_after_hours: int = 4
+    plan_thread_freshness_expired_after_hours: int = 24
 
     # Provenance — set by load_config() so the doctor can show where each
     # value came from. Not part of the schema users edit.
@@ -131,6 +139,37 @@ OPTIONS: tuple[ConfigOption, ...] = (
         env_vars=("WHISPER_ANALYSIS_DAYS", "ANALYSIS_DAYS"),
         default=30,
         description="Default look-back window for cost analysis.",
+        coerce=int,
+    ),
+    ConfigOption(
+        name="plan_thread_freshness_aging_after_min",
+        env_vars=("WHISPER_PLAN_THREAD_AGING_MIN",),
+        default=30,
+        description=(
+            "Minutes after which a plan thread's freshness footer is "
+            "appended to conversational answers."
+        ),
+        coerce=int,
+    ),
+    ConfigOption(
+        name="plan_thread_freshness_stale_after_hours",
+        env_vars=("WHISPER_PLAN_THREAD_STALE_HOURS",),
+        default=4,
+        description=(
+            "Hours after which a plan thread's answers gain a stale-warning "
+            "prefix advising the user to re-scan."
+        ),
+        coerce=int,
+    ),
+    ConfigOption(
+        name="plan_thread_freshness_expired_after_hours",
+        env_vars=("WHISPER_PLAN_THREAD_EXPIRED_HOURS",),
+        default=24,
+        description=(
+            "Hours after which a plan thread refuses to answer follow-ups "
+            "against the cached plan; the framework returns a deterministic "
+            "refusal instead of calling the LLM."
+        ),
         coerce=int,
     ),
 )
@@ -228,6 +267,34 @@ def _check_choice(cfg: WhisperConfig) -> list[CheckResult]:
                     message=f"{value!r} not in {opt.choices}",
                 ))
     return results
+
+
+def _check_plan_thread_freshness(cfg: WhisperConfig) -> CheckResult:
+    """Freshness tiers must be monotonically increasing once normalised to
+    the same unit. Misordered thresholds would silently swap which tier
+    a given age falls into and produce contradictory user-visible
+    language; failing loud at doctor time is the cheaper failure mode."""
+    aging_min = cfg.plan_thread_freshness_aging_after_min
+    stale_min = cfg.plan_thread_freshness_stale_after_hours * 60
+    expired_min = cfg.plan_thread_freshness_expired_after_hours * 60
+    if not (0 < aging_min < stale_min < expired_min):
+        return CheckResult(
+            capability="setting:plan_thread_freshness",
+            ok=False,
+            message=(
+                f"freshness thresholds must satisfy "
+                f"0 < aging({aging_min}m) < stale({stale_min}m) < "
+                f"expired({expired_min}m)"
+            ),
+        )
+    return CheckResult(
+        capability="setting:plan_thread_freshness",
+        ok=True,
+        message=(
+            f"aging>{aging_min}m, stale>{cfg.plan_thread_freshness_stale_after_hours}h, "
+            f"expired>{cfg.plan_thread_freshness_expired_after_hours}h"
+        ),
+    )
 
 
 def _check_scan(cfg: WhisperConfig) -> CheckResult:
@@ -384,6 +451,7 @@ def run_checks(cfg: WhisperConfig, *, verify_slack: bool = True) -> list[CheckRe
     """
     results: list[CheckResult] = []
     results.extend(_check_choice(cfg))
+    results.append(_check_plan_thread_freshness(cfg))
     results.append(_check_scan(cfg))
     results.extend(_check_llm(cfg))
     results.extend(_check_slack(cfg, verify_token=verify_slack))

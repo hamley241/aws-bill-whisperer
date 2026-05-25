@@ -1,0 +1,9 @@
+{
+  "responses": [
+    "{\n  \"answer\": \"The NAT in us-east-1 (nat-cross-dev) is at $32.40/mo. Flow Logs are not enabled, so the plan kept it as a dry_run step with an observe_and_reassess sub-action — there's no observed traffic data to justify an endpoint swap yet. The recommended next step is to enable Flow Logs and re-scan; the candidate VPC endpoint is inferred and may save money once we have data.\",\n  \"cited_finding_ids\": [\"60000000-0006-4000-8000-000000000030\"],\n  \"is_in_scope\": true,\n  \"scope_category\": null,\n  \"implies_action_taken\": false\n}\n"
+  ],
+  "metadata": {
+    "prompt_template": "plan_thread_reply",
+    "prompt_template_version": "v1"
+  }
+}
