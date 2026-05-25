@@ -1,0 +1,10 @@
+{
+  "responses": [
+    "{\n  \"answer\": \"Together, step 1 and step 2 total $218.24/mo of waste — that's roughly 87% of the plan's headline number.\",\n  \"cited_finding_ids\": [\"40000000-0004-4000-8000-000000000020\", \"10000000-0001-4000-8000-000000000010\"],\n  \"is_in_scope\": true,\n  \"scope_category\": null,\n  \"implies_action_taken\": false\n}\n"
+  ],
+  "metadata": {
+    "prompt_template": "plan_thread_reply",
+    "prompt_template_version": "v1",
+    "note": "Adversarial: LLM does arithmetic over canonical figures (138.24 + 80.0 = 218.24) and synthesises a percentage. 'together' / '%' arithmetic markers route to SYNTHESIZED_COST."
+  }
+}

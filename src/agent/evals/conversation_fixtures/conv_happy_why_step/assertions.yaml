@@ -1,0 +1,17 @@
+# Headline happy fixture for plan-thread Q&A.
+# Question: "Why did you pick step 1 over step 2?"
+# Expects a validated answer that cites both step findings and
+# writes the canonical step dollars inline ($138.24/mo, $80.00/mo).
+- type: envelope_present
+- type: no_fallback
+- type: turn_kind
+  equals: answered
+- type: cited_finding_ids_subset
+- type: answer_cites_finding
+  finding_id: "40000000-0004-4000-8000-000000000020"
+- type: answer_cites_finding
+  finding_id: "10000000-0001-4000-8000-000000000010"
+- type: answer_no_invented_dollar
+- type: answer_no_action_past_tense
+- type: answer_scope
+  in_scope: true

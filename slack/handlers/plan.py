@@ -43,7 +43,7 @@ from presenters import ScanResult  # noqa: E402
 from presenters.plan import BlockKitPlanPresenter, to_renderable  # noqa: E402
 
 from ..scanner import run_scan  # noqa: E402
-from ..thread_store import get_store  # noqa: E402
+from ..thread_store import get_store, new_thread_context  # noqa: E402
 
 
 GOAL_PREFIX = "goal:"
@@ -179,11 +179,15 @@ def _run_and_post(config, client, channel: str, parent_ts: str, logger,
 
     _safe_post(client, channel, parent_ts, text=fallback, blocks=blocks, logger=logger)
 
-    # Store the underlying ScanResult so the Open-PR button handler in
-    # actions.py can find the source finding by id — same behaviour as
-    # /whisper scan. Future PRs will extend the store to also carry the
-    # PlanResult for re-planning / threaded Q&A.
-    get_store().set(parent_ts, scan_result)
+    # Store both the ScanResult (the Open-PR button handler in
+    # actions.py looks up findings by id through it) AND the PlanResult
+    # (the plan-thread Q&A path in PR #9 needs the canonical plan to
+    # answer follow-ups). Wrapping in ThreadContext also stamps a
+    # creation timestamp used by the freshness contract.
+    get_store().set(
+        parent_ts,
+        new_thread_context(scan_result, plan_result=plan),
+    )
 
 
 def _safe_post(client, channel: str, thread_ts: str, *,

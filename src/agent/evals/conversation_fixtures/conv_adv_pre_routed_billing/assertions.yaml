@@ -1,0 +1,11 @@
+# Adversarial: user asks for account metadata that's outside the
+# conversation layer's scope and matches a deterministic pre-router
+# pattern. The framework refuses without calling the LLM at all —
+# no tokens spent — and surfaces the account_metadata refusal text.
+- type: pre_routed
+  category: account_metadata
+- type: turn_kind
+  equals: out_of_scope
+# No envelope_present assertion: the LLM was never called, so the
+# envelope is None. The pre_routed assertion is the canonical signal
+# for this path.

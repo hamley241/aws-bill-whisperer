@@ -284,10 +284,13 @@ class TestPlanDispatch:
 
     def test_thread_context_stored_for_open_pr_button(self):
         _invoke_plan("plan goal: foo", parent_ts="ts-plan-42")
-        # The Open-PR action handler looks up findings via ScanResult.
+        # PR #9: store now holds ThreadContext wrapping the ScanResult
+        # (and the PlanResult, for the plan-thread Q&A path).
         stored = get_store().get("ts-plan-42")
         assert stored is not None
-        assert stored.findings[0].resource_id == "vol-tf"
+        assert stored.scan_result.findings[0].resource_id == "vol-tf"
+        assert stored.plan_result is not None
+        assert stored.source_plan_id == stored.plan_result.plan_id
 
 
 class TestPlanFailureSurfaces:

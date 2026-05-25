@@ -1,6 +1,11 @@
 """
 Tests for thread context store, LLM Q&A (analyzer.conversation), and
 the message + app_mention handlers (slack.handlers.threads).
+
+PR #9: the store now holds `ThreadContext`, not raw `ScanResult`.
+Existing scan-only tests construct a ThreadContext with
+plan_result=None; new tests cover the plan-thread routing path that
+delegates to `analyzer.plan_conversation`.
 """
 from __future__ import annotations
 
@@ -17,6 +22,15 @@ for p in (_REPO, _SRC):
         sys.path.insert(0, str(p))
 
 from analyzer.conversation import answer_thread_question
+from analyzer.plan_conversation import (
+    FallbackReason,
+    FreshnessTier,
+    TurnOutcome,
+)
+from analyzer.thread_context import (
+    ConversationTurn,
+    new_thread_context,
+)
 from llm import LLMClient
 from llm.base import LLMResponse, Message
 from patterns.base import Finding, RiskTier
@@ -25,6 +39,7 @@ from slack.handlers import threads as thread_handlers
 from slack.handlers.threads import (
     MENTION_OUT_OF_THREAD_HINT,
     set_answerer,
+    set_plan_answerer,
 )
 from slack.thread_store import InMemoryThreadStore, get_store
 
@@ -48,10 +63,28 @@ def _sample_result() -> ScanResult:
     return ScanResult.from_findings([_finding()])
 
 
+def _scan_only_context():
+    return new_thread_context(_sample_result(), plan_result=None)
+
+
+class _StubPlan:
+    plan_id = "stub-plan-id"
+    steps = []
+    total_monthly_impact_usd = 0.0
+
+
+def _plan_context():
+    return new_thread_context(_sample_result(), plan_result=_StubPlan())
+
+
 @pytest.fixture(autouse=True)
 def _reset_store_and_answerer():
     get_store().clear()
     set_answerer(answer_thread_question)
+    # Restore the real plan answerer between tests so stubs from one
+    # test don't bleed into the next.
+    from analyzer.plan_conversation import answer_plan_thread_question
+    set_plan_answerer(answer_plan_thread_question)
     yield
     get_store().clear()
 
@@ -63,8 +96,11 @@ def _reset_store_and_answerer():
 class TestInMemoryThreadStore:
     def test_set_get_round_trip(self):
         store = InMemoryThreadStore()
-        store.set("ts-1", _sample_result())
-        assert store.get("ts-1").finding_count == 1
+        ctx = _scan_only_context()
+        store.set("ts-1", ctx)
+        got = store.get("ts-1")
+        assert got is ctx
+        assert got.scan_result.finding_count == 1
 
     def test_missing_returns_none(self):
         store = InMemoryThreadStore()
@@ -73,18 +109,18 @@ class TestInMemoryThreadStore:
     def test_has(self):
         store = InMemoryThreadStore()
         assert not store.has("ts-1")
-        store.set("ts-1", _sample_result())
+        store.set("ts-1", _scan_only_context())
         assert store.has("ts-1")
 
     def test_clear(self):
         store = InMemoryThreadStore()
-        store.set("ts-1", _sample_result())
+        store.set("ts-1", _scan_only_context())
         store.clear()
         assert store.get("ts-1") is None
 
 
 # ---------------------------------------------------------------------------
-# analyzer.conversation.answer_thread_question
+# analyzer.conversation.answer_thread_question — unchanged surface
 # ---------------------------------------------------------------------------
 
 class _StubLLM(LLMClient):
@@ -205,7 +241,7 @@ class TestMessageHandler:
 
     def test_ignores_non_thread_message(self):
         client = MagicMock()
-        get_store().set("ts-1", _sample_result())
+        get_store().set("ts-1", _scan_only_context())
 
         stub = _register_threads()
         stub.events["message"](
@@ -217,7 +253,7 @@ class TestMessageHandler:
 
     def test_ignores_bot_messages(self):
         client = MagicMock()
-        get_store().set("ts-1", _sample_result())
+        get_store().set("ts-1", _scan_only_context())
 
         stub = _register_threads()
         stub.events["message"](
@@ -228,9 +264,9 @@ class TestMessageHandler:
         )
         client.chat_postMessage.assert_not_called()
 
-    def test_answers_in_known_thread(self):
+    def test_answers_scan_only_thread_via_scan_answerer(self):
         client = MagicMock()
-        get_store().set("ts-1", _sample_result())
+        get_store().set("ts-1", _scan_only_context())
 
         captured = []
 
@@ -255,6 +291,94 @@ class TestMessageHandler:
         )
 
 
+class TestPlanThreadRouting:
+    """Plan-thread routing: when ThreadContext.plan_result is set, the
+    handler delegates to the plan-aware answerer, NOT the scan-only
+    answerer. The TurnOutcome's surfaced_text reaches Slack and the
+    ConversationTurn is recorded on the context."""
+
+    def _fake_plan_outcome(self, text: str = "plan-aware reply") -> TurnOutcome:
+        from datetime import datetime, timezone
+        turn = ConversationTurn(
+            user_question="q",
+            assistant_answer=text,
+            cited_finding_ids=(),
+            turn_kind="answered",
+            created_at=datetime.now(timezone.utc),
+        )
+        return TurnOutcome(
+            surfaced_text=text, turn=turn, fallback=None,
+            freshness_tier=FreshnessTier.FRESH, envelope=None,
+        )
+
+    def test_plan_thread_uses_plan_answerer(self):
+        client = MagicMock()
+        ctx = _plan_context()
+        get_store().set("ts-plan", ctx)
+
+        captured = []
+
+        def fake_plan(q, *, context, config):
+            captured.append((q, context.plan_result.plan_id))
+            return self._fake_plan_outcome("plan answer")
+
+        set_plan_answerer(fake_plan)
+        # Also stub the scan answerer to make any accidental
+        # call to it loud (it'd return the wrong text).
+        set_answerer(lambda *a, **kw: "WRONG — scan answerer hit")
+
+        stub = _register_threads()
+        stub.events["message"](
+            event={"text": "<@U999> why pick step 1?", "channel": "C1",
+                   "user": "U1", "thread_ts": "ts-plan"},
+            client=client,
+            logger=MagicMock(),
+        )
+
+        assert captured == [("why pick step 1?", "stub-plan-id")]
+        client.chat_postMessage.assert_called_once_with(
+            channel="C1", thread_ts="ts-plan", text="plan answer",
+        )
+
+    def test_turn_recorded_on_context(self):
+        client = MagicMock()
+        ctx = _plan_context()
+        get_store().set("ts-plan", ctx)
+
+        set_plan_answerer(lambda q, **kw: self._fake_plan_outcome("answered"))
+
+        stub = _register_threads()
+        stub.events["message"](
+            event={"text": "why?", "channel": "C1",
+                   "user": "U1", "thread_ts": "ts-plan"},
+            client=client,
+            logger=MagicMock(),
+        )
+
+        assert len(ctx.turns) == 1
+        assert ctx.turns[0].assistant_answer == "answered"
+
+    def test_scan_only_thread_does_not_record_turn(self):
+        """Scan-only threads use the existing plain-text path which
+        doesn't have a turn-tracking concept. Introducing it for the
+        scan path is out of scope for PR #9."""
+        client = MagicMock()
+        ctx = _scan_only_context()
+        get_store().set("ts-scan", ctx)
+
+        set_answerer(lambda q, **kw: "scan answer")
+
+        stub = _register_threads()
+        stub.events["message"](
+            event={"text": "why?", "channel": "C1",
+                   "user": "U1", "thread_ts": "ts-scan"},
+            client=client,
+            logger=MagicMock(),
+        )
+
+        assert len(ctx.turns) == 0
+
+
 class TestAppMentionHandler:
     def test_mention_outside_thread_returns_hint(self):
         client = MagicMock()
@@ -271,7 +395,7 @@ class TestAppMentionHandler:
 
     def test_mention_in_known_thread_answers(self):
         client = MagicMock()
-        get_store().set("ts-7", _sample_result())
+        get_store().set("ts-7", _scan_only_context())
         set_answerer(lambda q, **kw: "stubbed")
 
         stub = _register_threads()
@@ -287,7 +411,7 @@ class TestAppMentionHandler:
 
     def test_mention_with_empty_text_in_thread_prompts_for_question(self):
         client = MagicMock()
-        get_store().set("ts-5", _sample_result())
+        get_store().set("ts-5", _scan_only_context())
         set_answerer(lambda q, **kw: "should not be called")
 
         stub = _register_threads()

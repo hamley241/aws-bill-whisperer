@@ -247,10 +247,11 @@ clips, because only Slack rejects oversize messages.
 
 ## What's deferred to later PRs
 
-- Threaded follow-up Q&A on plans (the thread store will carry the
-  plan alongside the scan for this; the handler already calls
-  `get_store().set(parent_ts, scan_result)` for parity with `/whisper
-  scan`)
+- ~~Threaded follow-up Q&A on plans~~ — shipped in PR #9; see
+  `plan_thread_qa_agentic.md` for the design (`ThreadContext`
+  wrapper, freshness contract, dollar-placeholder protocol,
+  pre-router + envelope validators, conversation safety boundary as
+  rung 0 of the renderer guarantee hierarchy).
 - Re-planning when the user refines the goal mid-thread
 - Per-step `command` / `api_call` execution affordances in Slack
 - Multi-account plan rendering (paid-tier concern)

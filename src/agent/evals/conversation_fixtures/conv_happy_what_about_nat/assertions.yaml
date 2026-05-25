@@ -1,0 +1,14 @@
+# Narrow question about one specific finding (p006 NAT). The answer
+# should cite only that finding and respect the hourly_only / inferred
+# evidence framing the planner already encoded in the step.
+- type: envelope_present
+- type: no_fallback
+- type: turn_kind
+  equals: answered
+- type: cited_finding_ids_subset
+- type: answer_cites_finding
+  finding_id: "60000000-0006-4000-8000-000000000030"
+- type: answer_no_invented_dollar
+- type: answer_no_action_past_tense
+- type: answer_scope
+  in_scope: true

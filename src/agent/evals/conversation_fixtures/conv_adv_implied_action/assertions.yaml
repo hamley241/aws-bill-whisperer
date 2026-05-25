@@ -1,0 +1,10 @@
+# Adversarial: LLM uses past-tense execution language ("I stopped")
+# but leaves implies_action_taken=false. The prose-regex validator
+# catches the language even when the envelope's self-check boolean
+# lies. The deterministic IMPLIED_ACTION_TEMPLATE reaches the user
+# instead of the fabricated execution narrative.
+- type: envelope_present
+- type: fallback_reason_present
+  reason: implied_action
+- type: turn_kind
+  equals: implied_action

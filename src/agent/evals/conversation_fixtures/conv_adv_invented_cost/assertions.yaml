@@ -1,0 +1,10 @@
+# Adversarial: LLM writes an inline annual-projection dollar figure
+# ("$1658.88/yr"). The arithmetic heuristic ("per year" / "/yr")
+# routes the drop to SYNTHESIZED_COST under regex-strict-rules —
+# arithmetic phrasing alongside an inline `$` is a hard drop even
+# when the figure is derivable from canonical values.
+- type: envelope_present
+- type: fallback_reason_present
+  reason: synthesized_cost
+- type: turn_kind
+  equals: synthesized_cost

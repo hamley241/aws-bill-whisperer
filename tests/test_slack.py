@@ -173,9 +173,12 @@ class TestScanCommand:
 
     def test_thread_context_stored_after_scan(self):
         self._invoke("scan", parent_ts="ts-42")
-        result = get_store().get("ts-42")
-        assert result is not None
-        assert result.findings[0].resource_id == "vol-abc"
+        # PR #9: store holds ThreadContext now; scan-only thread has
+        # plan_result=None.
+        ctx = get_store().get("ts-42")
+        assert ctx is not None
+        assert ctx.scan_result.findings[0].resource_id == "vol-abc"
+        assert ctx.plan_result is None
 
     def test_scan_failure_posts_error_in_thread(self):
         def boom(config=None):
