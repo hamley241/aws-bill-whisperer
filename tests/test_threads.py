@@ -38,6 +38,7 @@ from presenters import ScanResult
 from slack.handlers import threads as thread_handlers
 from slack.handlers.threads import (
     MENTION_OUT_OF_THREAD_HINT,
+    PLAN_THREAD_INTERNAL_ERROR_TEXT,
     set_answerer,
     set_plan_answerer,
 )
@@ -376,6 +377,39 @@ class TestPlanThreadRouting:
             logger=MagicMock(),
         )
 
+        assert len(ctx.turns) == 0
+
+    def test_plan_answerer_raise_surfaces_fallback(self):
+        """The plan-thread answerer contract requires every failure to
+        come back as a typed `TurnOutcome`. If a future bug causes the
+        answerer to raise instead, the handler must NOT silently drop
+        the user's question — it must post a fallback so the thread
+        stays responsive and the operator finds the trace in logs.
+        """
+        client = MagicMock()
+        ctx = _plan_context()
+        get_store().set("ts-plan-boom", ctx)
+
+        def exploder(q, **kw):
+            raise RuntimeError("validator regressed")
+
+        set_plan_answerer(exploder)
+
+        stub = _register_threads()
+        stub.events["message"](
+            event={"text": "why?", "channel": "C1",
+                   "user": "U1", "thread_ts": "ts-plan-boom"},
+            client=client,
+            logger=MagicMock(),
+        )
+
+        client.chat_postMessage.assert_called_once()
+        call = client.chat_postMessage.call_args.kwargs
+        assert call["thread_ts"] == "ts-plan-boom"
+        assert call["text"] == PLAN_THREAD_INTERNAL_ERROR_TEXT
+        # The turn must NOT be recorded: there is no validated
+        # outcome to record, and writing one would poison subsequent
+        # turns' conversation history with the internal-error text.
         assert len(ctx.turns) == 0
 
 

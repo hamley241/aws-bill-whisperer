@@ -19,6 +19,7 @@ and records a `ConversationTurn` on the context.
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
 from pathlib import Path
@@ -34,6 +35,20 @@ from analyzer.plan_conversation import (  # noqa: E402
 )
 
 from ..thread_store import ThreadContext, get_store  # noqa: E402
+
+
+logger = logging.getLogger(__name__)
+
+# Surfaced to users when the plan-thread answerer raises unexpectedly.
+# The answerer is supposed to convert every known failure into a typed
+# fallback `TurnOutcome`; this message only fires when a future bug
+# bypasses that contract. Keep it terse and direct — no internals
+# leaked to a shared-channel message.
+PLAN_THREAD_INTERNAL_ERROR_TEXT = (
+    ":x: I hit an internal error answering that. The team's been "
+    "notified via logs — try rephrasing, or ask the question again "
+    "in a fresh `/whisper plan` thread."
+)
 
 
 _MENTION_RE = re.compile(r"<@[UW][A-Z0-9]+>")
@@ -119,12 +134,27 @@ def _answer(question: str, *, context: ThreadContext, config) -> str:
     exchange. Scan-only threads return plain text — no turn tracking
     (the existing path doesn't have it; introducing it for scan-only
     threads is out of scope for PR #9).
+
+    The plan-thread branch is wrapped defensively: the answerer is
+    designed to convert every known failure (LLM unavailable, parse
+    failure, validator drops, expired/stale tiers) into a typed
+    `TurnOutcome` with a deterministic fallback string. But the
+    contract is broad and the parser/validator code is young —
+    a regression that raises here would otherwise propagate out of
+    the Slack event handler with no user-visible reply, breaking the
+    thread silently. The wrap keeps the thread responsive even when
+    the answerer contract is violated; the exception is logged for
+    diagnostics.
     """
     if context.plan_result is None:
         return _scan_answerer(
             question, scan_result=context.scan_result, config=config,
         )
-    outcome = _plan_answerer(question, context=context, config=config)
+    try:
+        outcome = _plan_answerer(question, context=context, config=config)
+    except Exception:
+        logger.exception("plan-thread answerer raised unexpectedly")
+        return PLAN_THREAD_INTERNAL_ERROR_TEXT
     context.record_turn(outcome.turn)
     return outcome.surfaced_text
 

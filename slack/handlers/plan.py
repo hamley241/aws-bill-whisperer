@@ -179,14 +179,22 @@ def _run_and_post(config, client, channel: str, parent_ts: str, logger,
 
     _safe_post(client, channel, parent_ts, text=fallback, blocks=blocks, logger=logger)
 
-    # Store both the ScanResult (the Open-PR button handler in
-    # actions.py looks up findings by id through it) AND the PlanResult
-    # (the plan-thread Q&A path in PR #9 needs the canonical plan to
-    # answer follow-ups). Wrapping in ThreadContext also stamps a
-    # creation timestamp used by the freshness contract.
+    # Always carry the ScanResult — the Open-PR button handler in
+    # actions.py looks up findings by id through it, and the scan-only
+    # Q&A path can answer questions about the underlying findings even
+    # when the plan layer failed.
+    #
+    # Only carry the PlanResult when the planner produced a usable
+    # plan (`status="ok"`). A `validation_failed` plan has zero
+    # surfaced steps, the user was just told no usable plan exists,
+    # and routing into plan-thread Q&A on it would let the LLM answer
+    # follow-ups like "why is step 1 first?" against a non-plan —
+    # exactly the surface the user just saw declared empty.
+    # Downgrading to scan-only context here matches what the user saw.
+    plan_for_thread = plan if plan.status == "ok" else None
     get_store().set(
         parent_ts,
-        new_thread_context(scan_result, plan_result=plan),
+        new_thread_context(scan_result, plan_result=plan_for_thread),
     )
 
 

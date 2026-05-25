@@ -292,6 +292,29 @@ class TestPlanDispatch:
         assert stored.plan_result is not None
         assert stored.source_plan_id == stored.plan_result.plan_id
 
+    def test_failed_plan_downgrades_thread_to_scan_only(self):
+        """A `validation_failed` plan must NOT populate plan_result on
+        the ThreadContext — the user just saw the "no usable plan"
+        message, and follow-ups should route through scan-only Q&A
+        rather than letting the LLM answer questions like "why is
+        step 1 first?" against a non-existent plan.
+
+        The ScanResult still rides on the context so the Open-PR
+        button and scan-context follow-ups remain functional.
+        """
+        findings = [_safe_p001_finding()]
+        planner = _StubPlanner(_failed_plan(findings))
+        _invoke_plan("plan goal: foo", planner=planner,
+                     parent_ts="ts-plan-failed")
+
+        stored = get_store().get("ts-plan-failed")
+        assert stored is not None, "ThreadContext should still exist"
+        # Scan still present — Open-PR + scan-only Q&A still work.
+        assert stored.scan_result.findings[0].resource_id == "vol-tf"
+        # Plan absent — routing in threads.py falls back to scan-only.
+        assert stored.plan_result is None
+        assert stored.source_plan_id is None
+
 
 class TestPlanFailureSurfaces:
 
