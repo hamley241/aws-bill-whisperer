@@ -166,6 +166,39 @@ here, re-record fixtures, and remove the regex inline-$ canonical-
 match step from `validate_envelope`. Two parallel protocols are not
 acceptable.
 
+### Follow-up: validate the placeholder protocol against real LLM recordings
+
+**TODO (deferred from PR #9):** Validate the dollar-placeholder
+protocol against real LLM recordings before replacing
+regex-strict-rules.
+
+Concrete steps:
+
+1. Construct an alternative `plan_thread_reply` prompt that demands
+   `{{N}}` slots in `answer` and a parallel `cited_dollar_amounts`
+   array (the prompt text from this file's git history at the
+   PR #9 commit boundary is a starting point — pre-regex-switch).
+2. Run `WHISPER_ALLOW_REAL_LLM=1 python -m agent.evals.runner
+   --surface conversation --re-record` against all 8 conversation
+   fixtures with the placeholder prompt in place.
+3. Measure: how many recordings contain at least one `{{N}}` slot?
+   How many contain inline `$N` literals despite the prompt?
+   How many emit a syntactically correct `cited_dollar_amounts`
+   array? Real-LLM compliance below ~95% per-fixture is fragile;
+   keep regex-strict-rules and document the rate observed.
+4. If compliance is high: swap the prompt, swap `validate_envelope`
+   to use placeholder integrity instead of inline-$ canonical match,
+   re-record fixtures with the substituted output as the surfaced
+   text, update this decision record with the empirical evidence.
+
+The placeholder protocol has a higher theoretical safety ceiling
+(every `$` figure carries an explicit canonical-citation index; no
+prose-level arithmetic detection is needed). Regex-strict-rules
+covers the same failure modes via prose validation, but the
+arithmetic-heuristic is necessarily heuristic. The follow-up exists
+because the better contract may yet be reachable; it's deferred,
+not abandoned.
+
 ## Out-of-scope handling — two layers, both required
 
 | Layer | Trigger | LLM call? |
