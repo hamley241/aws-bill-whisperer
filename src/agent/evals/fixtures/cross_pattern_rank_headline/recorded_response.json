@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Three findings across compute, storage, and network. Rank by dollar impact: stop the idle m5.large first (largest single win, all safety gates pass), then PR-remove the terraform-managed 1TB gp2 volume, then surface the NAT as observe-only since Flow Logs are missing and candidate savings cannot be quantified.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"40000000-0004-4000-8000-000000000020\",\n      \"suggested_mode\": \"command\",\n      \"monthly_impact_usd\": 138.24,\n      \"rationale\": \"Idle m5.large i-cross-stop with avg CPU 1.8% over 14d and all safety gates passing (not ASG, no ALB/NLB, not prod, EBS root, not spot). Largest single saving in the account; emit the stop-instances command for the operator to run.\",\n      \"order_rank\": 1\n    },\n    {\n      \"finding_id\": \"10000000-0001-4000-8000-000000000010\",\n      \"suggested_mode\": \"pr\",\n      \"monthly_impact_usd\": 80.0,\n      \"rationale\": \"1000GB gp2 volume vol-cross-1 has been unattached 60 days with a 10-day-old snapshot and is managed by Terraform. PR mode is appropriate so the deletion lands through IaC review.\",\n      \"order_rank\": 2\n    },\n    {\n      \"finding_id\": \"60000000-0006-4000-8000-000000000030\",\n      \"suggested_mode\": \"dry_run\",\n      \"monthly_impact_usd\": 32.4,\n      \"rationale\": \"NAT nat-cross-dev is costing the baseline hourly charge but cost_source is hourly_only — Flow Logs are not enabled. Surface as dry_run with an observe-and-reassess sequence so we collect the data before guessing at endpoint savings.\",\n      \"order_rank\": 3,\n      \"recommended_sequence\": [\n        {\n          \"candidate_id\": \"cand-gateway-s3\",\n          \"action_kind\": \"observe_and_reassess\",\n          \"est_monthly_savings_usd\": 0.0,\n          \"evidence_tier\": \"inferred\",\n          \"rationale\": \"S3 Gateway is a candidate but no observed traffic data exists yet; enable Flow Logs and re-scan to quantify what an endpoint may save.\"\n        }\n      ]\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Hand-crafted cross-pattern happy path. One finding per pattern (p001/p004/p006). Ranked by dollar impact (p004 > p001 > p006). p001 uses pr (terraform-managed); p004 uses command (all gates pass); p006 uses dry_run with observe_and_reassess (hourly_only cost forbids savings claims). Re-record with WHISPER_ALLOW_REAL_LLM=1 and --re-record."
+  }
+}

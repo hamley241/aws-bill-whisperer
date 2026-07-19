@@ -65,6 +65,22 @@ def _has_except_handler(tree: ast.Module) -> bool:
     return any(isinstance(node, ast.ExceptHandler) for node in ast.walk(tree))
 
 
+def _class_method_names(tree: ast.Module) -> set[str]:
+    """Names of every method defined on a class in the module.
+
+    Walks ``ClassDef`` bodies for ``FunctionDef`` / ``AsyncFunctionDef``
+    nodes — AST, not a text search, so a ``def fix`` inside a comment or
+    docstring is correctly ignored and a real method is correctly caught.
+    """
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    names.add(item.name)
+    return names
+
+
 def _has_module_level_logger(tree: ast.Module) -> bool:
     """True iff the module assigns ``logger = logging.getLogger(__name__)``
     at module scope (top level of the module body).
@@ -148,6 +164,53 @@ def test_modules_handling_exceptions_define_a_module_logger():
     )
 
 
+TEMPLATE_PATH = PATTERNS_DIR / "_template.py"
+
+# The template is the file new patterns are COPIED FROM, so it must teach the
+# live remediation contract — remediate(finding, mode) -> RemediationResult —
+# and never a hook the framework doesn't call. It was twice left behind by a
+# migration (print() after 19 patterns moved to logging; fix() after the
+# interface moved to remediate()); a new pattern copied from a stale template
+# implements a dead hook whose remediation silently never runs. This guard is
+# narrow and mechanical on purpose: it is "the copy source must teach the live
+# contract", not a general dead-method detector.
+REMOVED_REMEDIATION_HOOK = "fix"
+LIVE_REMEDIATION_HOOK = "remediate"
+
+
+def test_template_does_not_define_removed_fix_hook():
+    """``_template.py`` must not define ``fix``.
+
+    ``fix(finding, dry_run)`` was the pre-migration remediation hook; the
+    live contract on ``BasePattern`` is ``remediate(finding, mode)``. No
+    pattern in ``src/patterns/`` defines ``fix``, so a template that teaches
+    it would seed a dead method whose remediation never runs.
+    """
+    methods = _class_method_names(_parse(TEMPLATE_PATH))
+    assert REMOVED_REMEDIATION_HOOK not in methods, (
+        "_template.py defines fix() — the removed pre-migration remediation "
+        "hook. The template is copied to create new patterns, so it must "
+        "teach the live contract remediate(finding, mode) -> RemediationResult "
+        "(see p001_unattached_ebs.py), never a hook the framework doesn't call."
+    )
+
+
+def test_template_remediation_hook_is_remediate():
+    """If ``_template.py`` defines a remediation hook at all, it must be
+    ``remediate`` — the live entry point on ``BasePattern``.
+
+    Guards the same class of miss from the other direction: the copy source
+    can't teach some other remediation-shaped method name either.
+    """
+    methods = _class_method_names(_parse(TEMPLATE_PATH))
+    assert LIVE_REMEDIATION_HOOK in methods, (
+        "_template.py defines no remediate() method. The template is the "
+        "copy source for new patterns and must teach the live remediation "
+        "contract remediate(finding, mode) -> RemediationResult (see "
+        "p001_unattached_ebs.py)."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Meta-tests: prove the guard has teeth — it must actually fire when a
 # print() is reintroduced or a logger is missing. These parse synthetic
@@ -197,6 +260,27 @@ def test_logger_check_rejects_non_conforming_shapes(assignment):
     module could violate the convention while passing the test."""
     tree = ast.parse("import logging\n" + assignment + "\n")
     assert not _has_module_level_logger(tree)
+
+
+def test_method_name_detection_catches_fix_and_remediate():
+    src = (
+        "class P:\n"
+        "    def scan(self):\n        pass\n"
+        "    def remediate(self, finding, mode):\n        pass\n"
+    )
+    methods = _class_method_names(ast.parse(src))
+    assert "remediate" in methods
+    assert "fix" not in methods
+
+
+def test_method_name_detection_fires_on_reintroduced_fix():
+    src = "class P:\n    def fix(self, finding, dry_run=True):\n        return True\n"
+    assert "fix" in _class_method_names(ast.parse(src))
+
+
+def test_method_name_detection_ignores_fix_in_strings_and_comments():
+    src = "class P:\n    x = 'def fix(self): ...'  # def fix\n    y = 1\n"
+    assert "fix" not in _class_method_names(ast.parse(src))
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -1,0 +1,1 @@
+Adversarial fixture — the recorded response emits one valid step (p001) plus three invalid steps across p004 and p006 to exercise per-step validator drops in cross-pattern context.

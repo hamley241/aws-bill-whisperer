@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Adversarial: one valid p001 step + three defective emissions across p004 and p006. Validator must drop the three defective steps with their respective reasons and let the p001 step survive.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"10000000-0001-4000-8000-000000000040\",\n      \"suggested_mode\": \"pr\",\n      \"monthly_impact_usd\": 80.0,\n      \"rationale\": \"Valid step: 1000GB gp2 vol-adv, 60d unattached, snapshot 10d, terraform-managed. PR mode lands the deletion through IaC review.\",\n      \"order_rank\": 1\n    },\n    {\n      \"finding_id\": \"40000000-0004-4000-8000-000000000050\",\n      \"suggested_mode\": \"dry_run\",\n      \"monthly_impact_usd\": 999.0,\n      \"rationale\": \"Adversarial: inflated impact ($999 vs canonical $138.24). Mode is legal for unsafe p004 (dry_run) so the failure must be MONTHLY_IMPACT_MISMATCH, not UNSUPPORTED_MODE.\",\n      \"order_rank\": 2\n    },\n    {\n      \"finding_id\": \"40000000-0004-4000-8000-000000000050\",\n      \"suggested_mode\": \"api_call\",\n      \"monthly_impact_usd\": 138.24,\n      \"rationale\": \"Adversarial: ASG-member is safe_to_fix=false, resolver offers only dry_run. Emitting api_call must be dropped as UNSUPPORTED_MODE in cross-pattern context (per-pattern safety must hold).\",\n      \"order_rank\": 3\n    },\n    {\n      \"finding_id\": \"60000000-0006-4000-8000-000000000060\",\n      \"suggested_mode\": \"command\",\n      \"monthly_impact_usd\": 32.4,\n      \"rationale\": \"Adversarial: claims non-zero endpoint savings on an inferred candidate while cost_source is hourly_only. Sub-action validator must drop with CANDIDATE_SAVINGS_MISMATCH.\",\n      \"order_rank\": 4,\n      \"recommended_sequence\": [\n        {\n          \"candidate_id\": \"cand-gateway-s3\",\n          \"action_kind\": \"add_vpc_endpoint\",\n          \"est_monthly_savings_usd\": 200.0,\n          \"evidence_tier\": \"inferred\",\n          \"rationale\": \"Adversarial: emitted savings 200.0 vs canonical 0.0 for an inferred candidate.\"\n        }\n      ]\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Cross-pattern adversarial. One valid p001 step survives; three defective emissions across p004 and p006 are each dropped with a distinct reason (MONTHLY_IMPACT_MISMATCH, UNSUPPORTED_MODE, CANDIDATE_SAVINGS_MISMATCH). The first two steps both reference the same p004 finding — both fail before the seen_finding_ids set is mutated, so neither trips DUPLICATE_FINDING_ID."
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Adversarial: emits monthly_impact_usd as the NAT *processing* cost (379.60) instead of the full NAT cost (412.00 = hourly + processing). Validator must drop with MONTHLY_IMPACT_MISMATCH; the $0.01 tolerance does not absorb a $32.40 hourly delta.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"60000000-0006-4000-8000-000000000080\",\n      \"suggested_mode\": \"command\",\n      \"monthly_impact_usd\": 379.6,\n      \"rationale\": \"Adversarial: emitted figure 379.60 is the processing-cost component only. Canonical monthly_impact_usd for this finding is 412.00 (hourly 32.40 + processing 379.60). The validator must drop this step regardless of the realistic-sounding rationale.\",\n      \"order_rank\": 1,\n      \"recommended_sequence\": [\n        {\n          \"candidate_id\": \"cand-gateway-s3\",\n          \"action_kind\": \"add_vpc_endpoint\",\n          \"est_monthly_savings_usd\": 250.54,\n          \"evidence_tier\": \"observed\",\n          \"rationale\": \"S3 traffic dominates (66% of 30d bytes); a gateway endpoint at rtb-priv-1 and rtb-priv-2 captures the share.\"\n        }\n      ]\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Carried forward from the p006 PR #5 review: 'a fixture where the LLM emits the wrong cost figure on p006 specifically.' The realistic failure mode is LLM confusing the full NAT cost with the processing-cost component — exactly the kind of mismatch the $0.01 validator tolerance must not absorb."
+  }
+}

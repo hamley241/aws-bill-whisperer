@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Adversarial: cites a real finding_id but recommends api_call against an unsafe finding (ASG-managed). The resolver offered only dry_run; the validator must drop with UNSUPPORTED_MODE.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"40000000-0004-4000-8000-000000000004\",\n      \"suggested_mode\": \"api_call\",\n      \"monthly_impact_usd\": 138.24,\n      \"rationale\": \"Adversarial: ASG member is not safe_to_fix. The resolver hides api_call; emitting it should be dropped.\",\n      \"order_rank\": 1\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Adversarial: validator must drop with reason UNSUPPORTED_MODE. Mirror of p006_adversarial_wrong_candidate_savings."
+  }
+}

@@ -1,7 +1,12 @@
 """
-`/whisper scan` slash command.
+`/whisper` slash command dispatcher + `scan` subcommand.
 
-Flow:
+The slash-command registration lives here because Bolt allows only one
+listener per command. The dispatcher recognises `scan` and `plan`
+subcommands and routes accordingly. The `plan` flow lives in
+`handlers/plan.py`; this module owns the `scan` flow and the routing.
+
+`scan` flow:
   1. ack() within Slack's 3-second window.
   2. Post "scan started" to the channel via chat.postMessage (captures
      the parent message ts).
@@ -26,7 +31,8 @@ from analyzer.explainer import explain_findings  # noqa: E402
 from presenters import BlockKitPresenter, ScanResult  # noqa: E402
 
 from ..scanner import run_scan  # noqa: E402
-from ..thread_store import get_store  # noqa: E402
+from ..thread_store import get_store, new_thread_context  # noqa: E402
+from . import plan as plan_handler  # noqa: E402
 
 
 SCAN_STARTED_TEXT = (
@@ -36,12 +42,15 @@ SCAN_STARTED_TEXT = (
 
 UNKNOWN_SUBCOMMAND_TEMPLATE = (
     "Unknown subcommand: `{text}`.\n"
-    "Available: `scan`. Try `/whisper scan`."
+    "Available: `scan`, `plan`. Try `/whisper scan` or `/whisper plan`."
 )
 
 USAGE_TEXT = (
     "*Whisper commands*\n"
     "`/whisper scan` — scan your AWS account for cost waste.\n"
+    "`/whisper plan` — scan and rank a remediation plan. "
+    "Add `goal: <text>` to steer the plan "
+    "(e.g. `/whisper plan goal: cut 20% this month`).\n"
 )
 
 # Override in tests.
@@ -75,37 +84,60 @@ def register(app: Any) -> None:
     @app.command("/whisper")
     def handle_whisper(ack, respond, command, client, logger):
         ack()
-        text = (command.get("text") or "").strip().lower()
-        if text == "" or text == "help":
+        raw_text = (command.get("text") or "").strip()
+        # Split on first whitespace: subcommand vs. rest (goal text etc.).
+        # Subcommand matching is case-insensitive; rest preserves case
+        # because goal text is free-form user input.
+        subcommand, _, rest = raw_text.partition(" ")
+        subcommand_lower = subcommand.lower()
+
+        if subcommand_lower in ("", "help"):
             respond(text=USAGE_TEXT, response_type="ephemeral")
             return
-        if text != "scan":
-            respond(
-                text=UNKNOWN_SUBCOMMAND_TEMPLATE.format(text=text),
-                response_type="ephemeral",
+
+        if subcommand_lower == "scan":
+            _handle_scan(respond, command, client, logger, config)
+            return
+
+        if subcommand_lower == "plan":
+            plan_handler.handle_plan(
+                respond=respond,
+                command=command,
+                client=client,
+                logger=logger,
+                config=config,
+                rest=rest,
             )
             return
 
-        channel = command.get("channel_id")
-        user = command.get("user_id")
-        logger.info("scan requested by user=%s channel=%s", user, channel)
-
-        try:
-            parent = client.chat_postMessage(channel=channel, text=SCAN_STARTED_TEXT)
-        except Exception as e:
-            logger.exception("failed to post scan-started message")
-            respond(
-                text=f":x: Couldn't post to the channel: `{e}`. "
-                     "Make sure the Whisper app has been added to this channel.",
-                response_type="ephemeral",
-            )
-            return
-
-        parent_ts = parent.get("ts") if isinstance(parent, dict) else parent["ts"]
-
-        _spawn_background(
-            lambda: _run_and_post(config, client, channel, parent_ts, logger)
+        respond(
+            text=UNKNOWN_SUBCOMMAND_TEMPLATE.format(text=raw_text),
+            response_type="ephemeral",
         )
+
+
+def _handle_scan(respond, command, client, logger, config) -> None:
+    """The scan flow body. Extracted so the dispatcher stays small."""
+    channel = command.get("channel_id")
+    user = command.get("user_id")
+    logger.info("scan requested by user=%s channel=%s", user, channel)
+
+    try:
+        parent = client.chat_postMessage(channel=channel, text=SCAN_STARTED_TEXT)
+    except Exception as e:
+        logger.exception("failed to post scan-started message")
+        respond(
+            text=f":x: Couldn't post to the channel: `{e}`. "
+                 "Make sure the Whisper app has been added to this channel.",
+            response_type="ephemeral",
+        )
+        return
+
+    parent_ts = parent.get("ts") if isinstance(parent, dict) else parent["ts"]
+
+    _spawn_background(
+        lambda: _run_and_post(config, client, channel, parent_ts, logger)
+    )
 
 
 def _run_and_post(config, client, channel: str, parent_ts: str, logger) -> None:
@@ -131,8 +163,10 @@ def _run_and_post(config, client, channel: str, parent_ts: str, logger) -> None:
     _safe_post(client, channel, parent_ts, text=fallback, blocks=blocks, logger=logger)
 
     # Remember the thread so message + app_mention handlers can answer
-    # follow-up questions with scan context.
-    get_store().set(parent_ts, result)
+    # follow-up questions with scan context. Wrap in ThreadContext so the
+    # plan-thread Q&A path (PR #9) sees a uniform shape — scan-only
+    # threads simply carry plan_result=None.
+    get_store().set(parent_ts, new_thread_context(result))
 
 
 def _safe_post(client, channel: str, thread_ts: str, *,

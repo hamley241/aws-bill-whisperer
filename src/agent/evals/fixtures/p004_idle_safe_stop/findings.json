@@ -1,0 +1,66 @@
+[
+  {
+    "id": "40000000-0004-4000-8000-000000000001",
+    "schema_version": "1",
+    "pattern_id": "004",
+    "resource_id": "i-safe-idle",
+    "resource_type": "EC2 Instance",
+    "resource_arn": "arn:aws:ec2:us-east-1::instance/i-safe-idle",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "monthly_impact_usd": 29.95,
+    "confidence": 0.9,
+    "risk_tier": "low",
+    "summary": "Stop idle t3.medium i-safe-idle (avg CPU 1.2% / max 8.0% over 14d; ~$29.95/mo)",
+    "explanation": null,
+    "fix_command": "aws ec2 stop-instances --instance-ids i-safe-idle --region us-east-1",
+    "fix_pr": null,
+    "safe_to_fix": true,
+    "evidence": {
+      "instance": {
+        "instance_id": "i-safe-idle",
+        "instance_type": "t3.medium",
+        "instance_family": "t3",
+        "platform": "Linux/UNIX",
+        "launch_time": "2026-01-15T00:00:00+00:00",
+        "age_days": 127,
+        "root_device_type": "ebs",
+        "instance_lifecycle": "on-demand",
+        "name": "dev-utility-box",
+        "tags": {"Owner": "platform", "Project": "scratch"}
+      },
+      "utilization": {
+        "avg_cpu_14d": 1.2,
+        "max_cpu_14d": 8.0,
+        "network_bytes_per_hour_14d": 12500.0,
+        "disk_bytes_per_hour_14d": 8400.0,
+        "cpu_datapoint_coverage": 334,
+        "expected_datapoints": 336
+      },
+      "attachments": {
+        "asg_name": null,
+        "target_group_arns": [],
+        "has_public_ip": false,
+        "eip_allocation_id": null,
+        "public_ip_without_eip": false
+      },
+      "cost": {
+        "monthly_cost_usd": 29.95,
+        "hourly_usd": 0.0416,
+        "cost_source": "static_list_price",
+        "pricing_region": "us-east-1",
+        "confidence": "low"
+      },
+      "gates": {
+        "cpu_data_sufficient": true,
+        "age_ok": true,
+        "not_in_asg": true,
+        "no_alb_nlb_attachment": true,
+        "not_prod": true,
+        "ebs_root": true,
+        "not_spot": true
+      }
+    },
+    "metadata": {}
+  }
+]

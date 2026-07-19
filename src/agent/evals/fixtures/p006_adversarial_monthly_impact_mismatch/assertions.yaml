@@ -1,0 +1,22 @@
+# Adversarial: the recorded response emits monthly_impact_usd = $379.60
+# (the NAT processing-cost component) when the canonical Finding value
+# is $412.00 (hourly + processing). The $32.40 delta exceeds the
+# validator's $0.01 tolerance and must trigger MONTHLY_IMPACT_MISMATCH.
+#
+# This is a p006-specific adversarial — not cross-pattern — but it
+# ships alongside the cross-pattern fixtures because p006's two-part
+# cost model (hourly + processing) is the most realistic place this
+# class of mismatch surfaces in production. Carried forward from
+# PR #5 review.
+
+- type: status
+  equals: validation_failed
+
+- type: steps_count
+  equals: 0
+
+- type: dropped_steps_count
+  min: 1
+
+- type: dropped_reason_present
+  reason: monthly_impact_mismatch

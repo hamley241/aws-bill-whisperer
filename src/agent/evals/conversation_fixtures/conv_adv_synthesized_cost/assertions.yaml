@@ -1,0 +1,10 @@
+# Adversarial: LLM computes a sum (138.24 + 80.0 = 218.24) and a
+# percentage (87%) from canonical step amounts. Both are derivable
+# but neither is canonical on its own — sign-off treats arithmetic
+# over canonical figures as a hard drop (SYNTHESIZED_COST), separate
+# from raw invention.
+- type: envelope_present
+- type: fallback_reason_present
+  reason: synthesized_cost
+- type: turn_kind
+  equals: synthesized_cost

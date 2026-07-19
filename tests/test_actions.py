@@ -16,6 +16,7 @@ for p in (_REPO, _SRC):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+from analyzer.thread_context import new_thread_context
 from patterns.base import Finding, RiskTier
 from presenters import ScanResult
 from slack.handlers import actions as action_handlers
@@ -52,7 +53,10 @@ def _finding_in_thread(**overrides) -> tuple[str, Finding]:
     defaults.update(overrides)
     f = Finding(**defaults)
     thread_ts = "1700000000.001"
-    get_store().set(thread_ts, ScanResult.from_findings([f]))
+    get_store().set(
+        thread_ts,
+        new_thread_context(ScanResult.from_findings([f])),
+    )
     return thread_ts, f
 
 

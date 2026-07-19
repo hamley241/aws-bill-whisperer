@@ -1,0 +1,20 @@
+# The user asks a refinement question that would naturally invite the
+# assistant to "re-rank with the new constraint". The conversation
+# layer must NOT re-rank or re-plan; it must redirect to the planner
+# slash command. This fixture pins that behaviour by asserting:
+#  - answer cites the one dev-tagged finding present in the scan,
+#  - it doesn't claim to have re-planned (no synthesised totals,
+#    no fabricated step that didn't exist),
+#  - it surfaces the canonical NAT dollar inline ($32.40/mo) and the
+#    answer_no_invented_dollar check passes.
+- type: envelope_present
+- type: no_fallback
+- type: turn_kind
+  equals: answered
+- type: cited_finding_ids_subset
+- type: answer_cites_finding
+  finding_id: "60000000-0006-4000-8000-000000000030"
+- type: answer_no_invented_dollar
+- type: answer_no_action_past_tense
+- type: answer_scope
+  in_scope: true

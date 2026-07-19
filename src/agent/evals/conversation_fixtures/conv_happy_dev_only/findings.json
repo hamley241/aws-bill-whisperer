@@ -1,0 +1,160 @@
+[
+  {
+    "id": "10000000-0001-4000-8000-000000000010",
+    "schema_version": "1",
+    "pattern_id": "001",
+    "resource_id": "vol-cross-1",
+    "resource_type": "EBS Volume",
+    "resource_arn": "arn:aws:ec2:us-east-1::volume/vol-cross-1",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "monthly_impact_usd": 80.0,
+    "confidence": 0.92,
+    "risk_tier": "high",
+    "summary": "Delete 1000GB gp2 volume (age 60d, snapshot: yes, terraform-managed)",
+    "explanation": null,
+    "fix_command": "aws ec2 delete-volume --volume-id vol-cross-1 --region us-east-1",
+    "fix_pr": null,
+    "safe_to_fix": true,
+    "evidence": {
+      "size_gb": 1000,
+      "volume_type": "gp2",
+      "age_days": 60,
+      "has_snapshot": true,
+      "latest_snapshot_age_days": 10,
+      "snapshot_count": 1,
+      "terraform_managed": true,
+      "tags": {"managed-by-terraform": "true"}
+    },
+    "metadata": {}
+  },
+  {
+    "id": "40000000-0004-4000-8000-000000000020",
+    "schema_version": "1",
+    "pattern_id": "004",
+    "resource_id": "i-cross-stop",
+    "resource_type": "EC2 Instance",
+    "resource_arn": "arn:aws:ec2:us-east-1::instance/i-cross-stop",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "monthly_impact_usd": 138.24,
+    "confidence": 0.9,
+    "risk_tier": "medium",
+    "summary": "Stop idle m5.large i-cross-stop (avg CPU 1.8% / max 11.0% over 14d; ~$138.24/mo)",
+    "explanation": null,
+    "fix_command": "aws ec2 stop-instances --instance-ids i-cross-stop --region us-east-1",
+    "fix_pr": null,
+    "safe_to_fix": true,
+    "evidence": {
+      "instance": {
+        "instance_id": "i-cross-stop",
+        "instance_type": "m5.large",
+        "instance_family": "m5",
+        "platform": "Linux/UNIX",
+        "launch_time": "2025-12-01T00:00:00+00:00",
+        "age_days": 172,
+        "root_device_type": "ebs",
+        "instance_lifecycle": "on-demand",
+        "name": "scratch-builder",
+        "tags": {"Owner": "platform", "Project": "scratch"}
+      },
+      "utilization": {
+        "avg_cpu_14d": 1.8,
+        "max_cpu_14d": 11.0,
+        "network_bytes_per_hour_14d": 22000.0,
+        "disk_bytes_per_hour_14d": 14000.0,
+        "cpu_datapoint_coverage": 336,
+        "expected_datapoints": 336
+      },
+      "attachments": {
+        "asg_name": null,
+        "target_group_arns": [],
+        "has_public_ip": false,
+        "eip_allocation_id": null,
+        "public_ip_without_eip": false
+      },
+      "cost": {
+        "monthly_cost_usd": 138.24,
+        "hourly_usd": 0.192,
+        "cost_source": "static_list_price",
+        "pricing_region": "us-east-1",
+        "confidence": "low"
+      },
+      "gates": {
+        "cpu_data_sufficient": true,
+        "age_ok": true,
+        "not_in_asg": true,
+        "no_alb_nlb_attachment": true,
+        "not_prod": true,
+        "ebs_root": true,
+        "not_spot": true
+      }
+    },
+    "metadata": {}
+  },
+  {
+    "id": "60000000-0006-4000-8000-000000000030",
+    "schema_version": "1",
+    "pattern_id": "006",
+    "resource_id": "nat-cross-dev",
+    "resource_type": "NAT Gateway",
+    "resource_arn": "arn:aws:ec2:us-east-1::natgateway/nat-cross-dev",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "monthly_impact_usd": 32.4,
+    "confidence": 0.6,
+    "risk_tier": "low",
+    "summary": "NAT Gateway nat-cross-dev — Flow Logs absent; only inferred candidates available.",
+    "explanation": null,
+    "fix_command": null,
+    "fix_pr": null,
+    "safe_to_fix": false,
+    "evidence": {
+      "nat_gateway": {
+        "nat_gateway_id": "nat-cross-dev",
+        "vpc_id": "vpc-dev",
+        "subnet_id": "subnet-public-d",
+        "create_time": "2025-12-01T00:00:00+00:00",
+        "age_days": 172,
+        "state": "available",
+        "tags": {"Env": "dev"}
+      },
+      "cost": {
+        "monthly_hours_cost_usd": 32.4,
+        "monthly_processing_cost_usd": 0.0,
+        "gb_processed_30d_bidirectional": 0.0,
+        "cost_source": "hourly_only",
+        "confidence": "low"
+      },
+      "topology": {
+        "private_subnets_using_nat": ["subnet-priv-d"],
+        "route_tables": [
+          {"rtb_id": "rtb-priv-d", "subnets": ["subnet-priv-d"], "default_route_target": "nat-cross-dev"}
+        ],
+        "affected_route_count": 1,
+        "existing_vpc_endpoints": []
+      },
+      "inferred": {
+        "endpoint_candidates": [
+          {
+            "candidate_id": "cand-gateway-s3",
+            "service": "s3",
+            "endpoint_type": "Gateway",
+            "evidence_tier": "inferred",
+            "supporting_observed_share": null,
+            "supporting_inference_reason": "service_endpoint_supported_by_aws",
+            "est_monthly_savings_usd": 0.0,
+            "blast_radius": "low",
+            "deterministic_command_hint": "aws ec2 create-vpc-endpoint --vpc-id vpc-dev --service-name com.amazonaws.us-east-1.s3 --route-table-ids rtb-priv-d --region us-east-1"
+          }
+        ]
+      },
+      "gates": {
+        "has_baseline_cost": true,
+        "has_any_candidate": true,
+        "observed_supports_top_candidate": false
+      }
+    },
+    "metadata": {}
+  }
+]

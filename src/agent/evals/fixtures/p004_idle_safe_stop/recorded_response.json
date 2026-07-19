@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"One quiet dev t3.medium with all safety gates passing. Emitting the stop command for the operator to run; api_call is also available if they want the planner to execute it.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"40000000-0004-4000-8000-000000000001\",\n      \"suggested_mode\": \"command\",\n      \"monthly_impact_usd\": 29.95,\n      \"rationale\": \"avg CPU 1.2% / max 8% over 14d, negligible network and disk, no ASG/ELB attachment, non-prod, EBS root, on-demand. Stop is fully reversible.\",\n      \"order_rank\": 1\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Hand-crafted happy path. Safe idle t3.medium; planner picks command mode. Re-record against the live LLM with WHISPER_ALLOW_REAL_LLM=1 and --re-record."
+  }
+}

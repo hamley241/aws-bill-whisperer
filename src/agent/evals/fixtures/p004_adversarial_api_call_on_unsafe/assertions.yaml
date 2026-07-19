@@ -1,0 +1,24 @@
+# Adversarial: a valid finding_id but a mode the resolver did not offer.
+#
+# The finding has safe_to_fix=False (ASG-managed), so the resolver offers
+# only dry_run. The recorded response emits suggested_mode="api_call".
+# The validator must drop the step with reason UNSUPPORTED_MODE.
+#
+# This is the natural mirror of p006_adversarial_wrong_candidate_savings:
+# both exercise validator-drop behavior on an emission that bypasses the
+# pattern's resolver-gated mode set. The companion non-adversarial
+# fixture p004_idle_gate_fail_asg verifies the planner *doesn't*
+# volunteer the forbidden mode; this fixture verifies the validator
+# *would* drop it if the LLM did.
+
+- type: status
+  equals: validation_failed
+
+- type: steps_count
+  equals: 0
+
+- type: dropped_steps_count
+  min: 1
+
+- type: dropped_reason_present
+  reason: unsupported_mode
