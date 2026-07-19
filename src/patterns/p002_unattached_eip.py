@@ -4,7 +4,12 @@ Detects EIPs not attached to any instance or ENI
 """
 
 
+import logging
+
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class UnattachedEIPPattern(BasePattern):
@@ -51,8 +56,8 @@ class UnattachedEIPPattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-            except Exception as e:
-                print(f"Error scanning {region}: {e}")
+            except Exception:
+                logger.exception("p002 error scanning region %s", region)
                 continue
 
         return self._findings
@@ -64,7 +69,7 @@ class UnattachedEIPPattern(BasePattern):
 
             ec2 = self.session.client('ec2', region_name=finding.region)
             ec2.release_address(AllocationId=finding.resource_id)
-            print(f"Released EIP {finding.resource_id}")
+            logger.info("p002 released EIP %s", finding.resource_id)
             return RemediationResult(
                 finding_id=finding.id,
                 pattern_id=self.PATTERN_ID,

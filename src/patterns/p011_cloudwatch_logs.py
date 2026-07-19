@@ -12,9 +12,13 @@ Best practice:
 - Set retention to match compliance needs (most don't need >90 days)
 - Delete logs that serve no purpose
 """
+import logging
 from datetime import datetime, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class CloudWatchLogsRetentionPattern(BasePattern):
@@ -50,8 +54,8 @@ class CloudWatchLogsRetentionPattern(BasePattern):
                         findings = self._analyze_log_group(log_group, region)
                         self._findings.extend(findings)
 
-            except Exception as e:
-                print(f"Error scanning {region}: {e}")
+            except Exception:
+                logger.exception("p011 error scanning region %s", region)
                 continue
 
         return self._findings
@@ -201,8 +205,8 @@ class CloudWatchLogsRetentionPattern(BasePattern):
                     logGroupName=finding.resource_id,
                     retentionInDays=90
                 )
-            except Exception as e:
-                print(f"Error setting retention policy: {e}")
+            except Exception:
+                logger.exception("p011 error setting retention policy")
                 return False
             return RemediationResult(
                 finding_id=finding.id,

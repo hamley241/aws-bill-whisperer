@@ -3,7 +3,12 @@ Pattern 003: GP2 to GP3 Migration
 Detects EBS volumes using gp2 that could be migrated to gp3 for ~20% savings
 """
 
+import logging
+
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class GP2ToGP3Pattern(BasePattern):
@@ -96,8 +101,8 @@ class GP2ToGP3Pattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-            except Exception as e:
-                print(f"Error scanning {region}: {e}")
+            except Exception:
+                logger.exception("p003 error scanning region %s", region)
                 continue
 
         return self._findings
@@ -144,7 +149,7 @@ class GP2ToGP3Pattern(BasePattern):
                 VolumeType="gp3",
                 Iops=finding.metadata.get("proposed_iops", 3000)
             )
-            print(f"Modified volume {finding.resource_id}: {result['VolumeModification']['Status']}")
+            logger.info("p003 modified volume %s: %s", finding.resource_id, result["VolumeModification"]["Status"])
             return RemediationResult(
                 finding_id=finding.id,
                 pattern_id=self.PATTERN_ID,

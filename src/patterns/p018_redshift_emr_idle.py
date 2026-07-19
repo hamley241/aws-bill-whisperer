@@ -4,9 +4,13 @@ Detects Redshift and EMR clusters that are idle (no queries/jobs for extended pe
 These are very expensive resources that should be terminated when not in use.
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class RedshiftEMRIdlePattern(BasePattern):
@@ -52,13 +56,13 @@ class RedshiftEMRIdlePattern(BasePattern):
         for region in regions:
             try:
                 self._scan_redshift(region)
-            except Exception as e:
-                print(f"Error scanning Redshift in {region}: {e}")
+            except Exception:
+                logger.exception("p018 error scanning Redshift in region %s", region)
 
             try:
                 self._scan_emr(region)
-            except Exception as e:
-                print(f"Error scanning EMR in {region}: {e}")
+            except Exception:
+                logger.exception("p018 error scanning EMR in region %s", region)
 
         return self._findings
 
@@ -72,8 +76,8 @@ class RedshiftEMRIdlePattern(BasePattern):
             for page in paginator.paginate():
                 for cluster in page.get('Clusters', []):
                     self._analyze_redshift_cluster(cluster, cloudwatch, region)
-        except Exception as e:
-            print(f"Error listing Redshift clusters in {region}: {e}")
+        except Exception:
+            logger.exception("p018 error listing Redshift clusters in region %s", region)
 
     def _analyze_redshift_cluster(self, cluster: dict, cloudwatch, region: str):
         """Analyze a single Redshift cluster for idle status."""
@@ -183,8 +187,8 @@ class RedshiftEMRIdlePattern(BasePattern):
                 for cluster_summary in page.get('Clusters', []):
                     cluster_id = cluster_summary['Id']
                     self._analyze_emr_cluster(emr, cloudwatch, cluster_id, region)
-        except Exception as e:
-            print(f"Error listing EMR clusters in {region}: {e}")
+        except Exception:
+            logger.exception("p018 error listing EMR clusters in region %s", region)
 
     def _analyze_emr_cluster(self, emr, cloudwatch, cluster_id: str, region: str):
         """Analyze a single EMR cluster for idle status."""
@@ -272,8 +276,8 @@ class RedshiftEMRIdlePattern(BasePattern):
             )
             self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error analyzing EMR cluster {cluster_id}: {e}")
+        except Exception:
+            logger.exception("p018 error analyzing EMR cluster %s", cluster_id)
 
     def _get_emr_metric(self, cloudwatch, cluster_id: str, metric_name: str,
                          start_time: datetime, end_time: datetime) -> dict:

@@ -5,9 +5,13 @@ Detects DynamoDB tables on suboptimal capacity mode:
 - Provisioned with <10% utilization (overprovisioned)
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class DynamoDBCapacityPattern(BasePattern):
@@ -47,8 +51,8 @@ class DynamoDBCapacityPattern(BasePattern):
                     for table_name in page.get('TableNames', []):
                         self._analyze_table(dynamodb, cloudwatch, table_name, region)
 
-            except Exception as e:
-                print(f"Error scanning DynamoDB in {region}: {e}")
+            except Exception:
+                logger.exception("p017 error scanning DynamoDB in region %s", region)
                 continue
 
         return self._findings
@@ -69,8 +73,8 @@ class DynamoDBCapacityPattern(BasePattern):
             else:  # Provisioned
                 self._check_provisioned_table(cloudwatch, table, table_name, region, start_time, end_time)
 
-        except Exception as e:
-            print(f"Error analyzing table {table_name}: {e}")
+        except Exception:
+            logger.exception("p017 error analyzing table %s", table_name)
 
     def _check_on_demand_table(self, cloudwatch, table, table_name: str, region: str,
                                 start_time: datetime, end_time: datetime):

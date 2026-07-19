@@ -3,9 +3,13 @@ Pattern 010: Idle Load Balancers
 Detects ELBs, ALBs, and NLBs with no targets or zero traffic.
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class IdleLoadBalancerPattern(BasePattern):
@@ -40,8 +44,8 @@ class IdleLoadBalancerPattern(BasePattern):
                 # Check Classic Load Balancers
                 self._scan_classic_elb(region)
 
-            except Exception as e:
-                print(f"Error scanning load balancers in {region}: {e}")
+            except Exception:
+                logger.exception("p010 error scanning load balancers in region %s", region)
                 continue
 
         return self._findings
@@ -163,8 +167,8 @@ class IdleLoadBalancerPattern(BasePattern):
                 )
                 self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error scanning ELBv2 in {region}: {e}")
+        except Exception:
+            logger.exception("p010 error scanning ELBv2 in region %s", region)
 
     def _scan_classic_elb(self, region: str) -> None:
         """Scan Classic Load Balancers"""
@@ -265,8 +269,8 @@ class IdleLoadBalancerPattern(BasePattern):
                 )
                 self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error scanning Classic ELB in {region}: {e}")
+        except Exception:
+            logger.exception("p010 error scanning Classic ELB in region %s", region)
 
     def _get_lb_request_count(
         self,
@@ -353,7 +357,7 @@ class IdleLoadBalancerPattern(BasePattern):
                 else:
                     raise ValueError(f"Missing ARN for {finding.resource_id}")
 
-            print(f"Deleted {finding.resource_type} {finding.resource_id}")
+            logger.info("p010 deleted %s %s", finding.resource_type, finding.resource_id)
             return RemediationResult(
                 finding_id=finding.id,
                 pattern_id=self.PATTERN_ID,

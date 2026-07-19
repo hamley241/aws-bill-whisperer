@@ -10,7 +10,12 @@ COPY THIS FILE to create a new pattern:
 """
 
 
+import logging
+
 from .base import BasePattern, Complexity, Finding
+
+
+logger = logging.getLogger(__name__)
 
 
 class TemplatePattern(BasePattern):
@@ -68,8 +73,8 @@ class TemplatePattern(BasePattern):
 
                 pass  # Remove this when implementing
 
-            except Exception as e:
-                print(f"Error scanning {region}: {e}")
+            except Exception:
+                logger.exception("template pattern error scanning region %s", region)
                 continue
 
         return self._findings
@@ -85,7 +90,7 @@ class TemplatePattern(BasePattern):
             raise ValueError(f"Cannot safely fix {finding.resource_id}")
 
         if dry_run:
-            print(f"[DRY RUN] Would fix {finding.resource_id}")
+            logger.info("[DRY RUN] would fix %s", finding.resource_id)
             return True
 
         # Implement actual fix here

@@ -4,9 +4,13 @@ Detects S3 buckets without lifecycle policies that could save money with
 Intelligent-Tiering, Glacier transitions, or object expiration.
 """
 
+import logging
 from datetime import datetime, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class S3LifecyclePattern(BasePattern):
@@ -119,11 +123,11 @@ class S3LifecyclePattern(BasePattern):
                         continue  # Bucket was deleted during scan
                     if error_code == 'AccessDenied' or 'AccessDenied' in str(e):
                         continue  # Skip buckets we can't access
-                    print(f"Error analyzing bucket {bucket_name}: {e}")
+                    logger.exception("p008 error analyzing bucket %s", bucket_name)
                     continue
 
-        except Exception as e:
-            print(f"Error scanning S3 buckets: {e}")
+        except Exception:
+            logger.exception("p008 error scanning S3 buckets")
 
         return self._findings
 

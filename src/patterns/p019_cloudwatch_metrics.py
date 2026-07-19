@@ -4,10 +4,14 @@ Detects custom metrics with high cardinality dimensions that cause cost explosio
 Each unique dimension combination is a separate metric, billed at $0.30/metric/month.
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class CloudWatchMetricsPattern(BasePattern):
@@ -38,8 +42,8 @@ class CloudWatchMetricsPattern(BasePattern):
             try:
                 cloudwatch = self.session.client('cloudwatch', region_name=region)
                 self._analyze_custom_metrics(cloudwatch, region)
-            except Exception as e:
-                print(f"Error scanning CloudWatch in {region}: {e}")
+            except Exception:
+                logger.exception("p019 error scanning CloudWatch in region %s", region)
                 continue
 
         return self._findings
@@ -56,8 +60,8 @@ class CloudWatchMetricsPattern(BasePattern):
             for namespace in custom_namespaces:
                 self._analyze_namespace(cloudwatch, namespace, region)
 
-        except Exception as e:
-            print(f"Error analyzing CloudWatch metrics in {region}: {e}")
+        except Exception:
+            logger.exception("p019 error analyzing CloudWatch metrics in region %s", region)
 
     def _list_namespaces(self, cloudwatch) -> list[str]:
         """List all metric namespaces."""
@@ -68,8 +72,8 @@ class CloudWatchMetricsPattern(BasePattern):
             for page in paginator.paginate(PaginationConfig={'MaxItems': 1000}):
                 for metric in page.get('Metrics', []):
                     namespaces.add(metric['Namespace'])
-        except Exception as e:
-            print(f"Error listing namespaces: {e}")
+        except Exception:
+            logger.exception("p019 error listing namespaces")
         return list(namespaces)
 
     def _analyze_namespace(self, cloudwatch, namespace: str, region: str):
@@ -178,8 +182,8 @@ class CloudWatchMetricsPattern(BasePattern):
             )
             self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error analyzing namespace {namespace}: {e}")
+        except Exception:
+            logger.exception("p019 error analyzing namespace %s", namespace)
 
     def _calculate_metric_cost(self, metric_count: int) -> float:
         """Calculate monthly cost for a number of custom metrics."""

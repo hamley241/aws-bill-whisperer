@@ -2,9 +2,13 @@
 Pattern 004: Idle EC2 Instances
 Detects EC2 instances with <5% average CPU utilization over 14 days
 """
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class IdleEC2Pattern(BasePattern):
@@ -110,8 +114,8 @@ class IdleEC2Pattern(BasePattern):
                     )
                     self._findings.append(finding)
 
-            except Exception as e:
-                print(f"Error scanning {region}: {e}")
+            except Exception:
+                logger.exception("p004 error scanning region %s", region)
                 continue
 
         return self._findings
