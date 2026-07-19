@@ -105,3 +105,6 @@ yarn-error.log*
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
 .claude/worktrees/
+
+# Created by running potluck (uv) from this repo; not a dependency of this project
+uv.lock
