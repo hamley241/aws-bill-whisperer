@@ -1,274 +1,208 @@
-# Pattern 004: Idle EC2 Instances - AGENTIC VERSION
+# Pattern 004: Idle EC2 Instances — AGENTIC VERSION
 
-## Agent Behavior
+## Implementation status (third bulletproof pattern; second planner-aware compute pattern)
+
+| Capability | OSS today | Notes |
+|---|---|---|
+| Detection (cross-region scan) | ✅ | `src/patterns/p004_idle_ec2.py:scan()` |
+| Utilization evidence (CPU avg + max, network/disk bytes per hour, datapoint coverage) | ✅ | `_cpu_stats()`, `_bytes_per_hour()` |
+| ELB-attachment index (ALB / NLB target groups) | ✅ | `_build_elb_target_index()` |
+| Closed safety-gate set (7 gates → `safe_to_fix`) | ✅ | `GATE_NAMES`, `evidence.gates` |
+| Risk tier (prod tag, ASG, ELB, $ impact, family, EIP-less public IP) | ✅ | `_risk_tier()` |
+| Static us-east-1 list-price cost (`cost_source="static_list_price"`) | ✅ | `HOURLY_USD_US_EAST_1`, `pricing_region` field |
+| Per-instance live pricing via Pricing API or CUR (`cost_source="pricing_api"`) | ❌ later | follow-up PR |
+| `dry_run` mode | ✅ | renders evidence + per-gate pass/fail; no AWS calls |
+| `command` mode | ✅ (only when `safe_to_fix=True`) | emits `aws ec2 stop-instances …`; resolver hides the mode for unsafe findings |
+| `pr` mode | ❌ deferred | instance run-state isn't cleanly modelled in Terraform |
+| `api_call` mode (stop) | ✅ (only when `safe_to_fix=True`) | calls `ec2.stop_instances()`; refuses unsafe findings without making the AWS call |
+| `api_call` mode (terminate / rightsize) | ❌ out of scope | terminate fails reversibility; rightsize needs its own recommendation engine |
+| Classic ELB (CLB) attachment check | ❌ later | requires `elasticloadbalancing:DescribeLoadBalancers` + `DescribeInstanceHealth` via `boto3.client("elb")`; see "Known gaps" below |
+| Planner: sub-action `recommended_sequence` | ❌ N/A | p004 is one-finding-one-action; no candidate menu |
+| Cross-pattern ranking via planner | ✅ (preview only this PR) | `p001_p004_preview` fixture proves the planner consumes mixed findings cleanly |
+| Cross-pattern eval rubric semantics | ❌ next PR | dedicated cross-pattern eval PR |
+| Multi-account scanning | ❌ (paid tier) | single-account OSS scope |
+
+## Agent behavior
 
 ### Objective
-Continuously detect, analyze, and optimize underutilized EC2 instances to reduce compute costs while maintaining service reliability and performance. Achieve 30-60% cost reduction on idle compute resources through intelligent rightsizing, scheduling, and consolidation with <0.1% service impact rate.
 
-### Trigger Conditions
-The agent should run:
-- **Scheduled**: 
-  - Daily CPU utilization analysis at 3 AM UTC
-  - Weekly comprehensive analysis including network and memory patterns
-  - Monthly rightsizing recommendations with cost projections
-- **Event-driven**: 
-  - Instance launch events (establish monitoring baselines)
-  - Auto Scaling events (analyze pattern changes)
-  - Application deployment events (reassess resource requirements)
-  - Cost anomaly alerts (investigate sudden utilization changes)
-- **Threshold-based**: 
-  - CPU utilization <5% average over 14 days
-  - Instance idle time >80% over 7 days
-  - Compute cost per unit of work exceeds benchmark by >50%
-  - Monthly compute waste exceeds $1000 per service
-- **Context-aware**: 
-  - Avoid analysis during known high-traffic periods (Black Friday, etc.)
-  - Coordinate with deployment schedules and maintenance windows
-  - Consider seasonal business patterns and growth trends
+Reduce compute spend on instances the customer is paying for but not
+using. The planner ranks idle EC2 candidates against storage and network
+findings using deterministic evidence the scanner extracted (CPU, network,
+disk, instance role, blast-radius signals). The LLM never invents
+instance IDs, CPU figures, ASG membership, cost figures, or safety-gate
+outcomes.
 
-### Investigation Steps
-For each flagged idle instance, the agent should:
+### Trigger conditions
 
-1. **Resource Discovery & Utilization Analysis**
-   - Collect 14-day CPU, memory, network, and disk utilization metrics
-   - Analyze usage patterns: peak hours, weekdays vs weekends, seasonal trends
-   - Identify burst patterns that might indicate actual workload requirements
-   - Calculate cost per hour and monthly spend for current configuration
+- **Scheduled** (paid tier): nightly per-account scan.
+- **OSS today**: on-demand via `/whisper scan` in Slack or CLI.
+- **Event-driven** (paid tier): EC2 instance state-change events,
+  ASG launch/terminate events, deployment completion events.
 
-2. **Workload Classification & Context**
-   - Determine application type from tags, AMI, and running processes
-   - Identify if instance is part of Auto Scaling group or load balancer
-   - Check for scheduled jobs, batch processing, or standby purposes
-   - Assess criticality level (production, staging, development, testing)
+### Investigation steps (deterministic)
 
-3. **Business Impact Assessment**
-   - Map instance to service ownership and business function
-   - Evaluate SLA requirements and availability needs
-   - Calculate potential cost savings from rightsizing or scheduling
-   - Assess impact on dependent services and data flows
+1. List `running` EC2 instances across regions.
+2. For each instance ≥14 days old, pull 14-day hourly CloudWatch metrics:
+   - `CPUUtilization` with `Statistics=["Average", "Maximum"]`
+   - `NetworkIn` + `NetworkOut` with `Statistics=["Sum"]`
+   - `DiskReadBytes` + `DiskWriteBytes` with `Statistics=["Sum"]`
+3. Refuse to emit a finding when CW returns fewer than 280 hourly
+   datapoints — the p004 analogue of p006's `hourly_only` conservatism.
+4. Classify as idle iff: `avg_cpu_14d < 5%` AND `max_cpu_14d < 20%`
+   AND `network_bytes_per_hour_14d < 1 MiB/h` AND
+   `disk_bytes_per_hour_14d < 1 MiB/h`.
+5. Build the per-region ELB target-group index via
+   `elbv2:DescribeTargetGroups` + `DescribeTargetHealth`.
+6. Compute the closed safety-gate set (see below) and derive
+   `safe_to_fix = all(gates.values())`.
+7. Compute risk tier from prod tag, ASG membership, ALB/NLB attachment,
+   monthly impact, instance family, and EIP-less public IP.
 
-4. **Performance History Analysis**
-   - Review historical performance during traffic spikes
-   - Analyze response time and throughput trends
-   - Identify resource bottlenecks beyond CPU (memory, I/O, network)
-   - Compare current allocation vs actual peak usage
+### Decision policy (planner)
 
-5. **Owner and Service Mapping**
-   - Extract ownership from tags (Owner, Team, Project, Environment)
-   - Correlate with service catalog and architecture documentation
-   - Identify budget owner and cost center allocation
-   - Determine technical contacts and on-call responsibilities
+The LLM proposes **one step per p004 finding**. There is no
+`recommended_sequence`; idle EC2 is a one-finding-one-action shape, not
+a candidate menu like NAT Gateways. The validator drops any step that
+invents a finding ID, mismatches `monthly_impact_usd`, or suggests a
+mode that wasn't in the finding's `available_modes`.
 
-6. **Dependency and Risk Analysis**
-   - Map network dependencies and service mesh connections
-   - Identify data persistence and state management requirements
-   - Assess disaster recovery and backup implications
-   - Evaluate testing and deployment pipeline dependencies
+For unsafe findings, the resolver offers only `dry_run`. The LLM
+emitting `command` or `api_call` against an unsafe finding is dropped
+with `UNSUPPORTED_MODE` — no special "refused with header" code path,
+no executable text on gate-fail.
 
-7. **Optimization Opportunity Evaluation**
-   - Calculate rightsizing options (smaller instance types)
-   - Assess spot instance eligibility for cost savings
-   - Evaluate containerization or serverless migration potential
-   - Consider scheduled start/stop patterns for dev/test workloads
+### Autonomous actions
 
-### Decision Policy
+The agent may execute **without approval** (single-account OSS):
 
-- **Low Priority** (<10% utilization, dev/test, <$100/month savings):
-  - Development and testing environments with proper tagging
-  - Recently launched instances still establishing patterns
-  - Action: Owner notification with rightsizing recommendations and 30-day timeline
+- Emit a `dry_run` plan.
+- Emit a `command` suggestion (text only, no execution) for findings
+  where every gate passes.
+- Call `ec2.stop_instances()` via `api_call` for findings where every
+  gate passes. Stops are fully reversible (`start_instances` restores
+  the instance with EBS root preserved); the audit log records every
+  attempt and result.
 
-- **Medium Priority** (5-10% utilization, staging, $100-500/month savings):
-  - Staging environments with low but consistent usage
-  - Production instances with clear rightsizing opportunity
-  - Action: Detailed analysis report to owner + performance impact assessment + 14-day review timeline
+The agent **must require approval** before:
 
-- **High Priority** (<5% utilization, production, $500-2000/month savings):
-  - Production workloads significantly over-provisioned
-  - Clear rightsizing opportunity without performance risk
-  - Action: Engineering review required + architectural assessment + staged implementation plan
+- Any production-tagged instance change — gates already block this in OSS.
+- Any ASG-member or ELB-target change — gates already block this.
 
-- **Critical Priority** (<2% utilization, >$2000/month savings, or rapid cost growth):
-  - Severely oversized instances with massive waste
-  - Abandoned or forgotten production workloads
-  - Runaway auto-scaling causing cost explosion
-  - Action: Immediate escalation + emergency cost control + architectural review
+The agent is **forbidden from**:
 
-### Autonomous Actions
+- Terminating any EC2 instance.
+- Modifying instance attributes (rightsize) without explicit operator
+  intent. Rightsizing has its own evidence shape and is a separate
+  pattern.
 
-The agent may execute **without approval**:
+These are not permission flags the customer can toggle in OSS — they
+are wired into the mode resolver and the pattern's `remediate()`.
 
-**Safe Analysis and Reporting**:
-- Generate detailed utilization reports with trend analysis
-- Create cost optimization recommendations with impact projections
-- Send educational notifications about rightsizing opportunities
-- Tag instances with utilization metrics and optimization potential
-- Create performance baseline documentation
-- Generate monthly cost optimization dashboards
+### Reversibility-blast-radius principle
 
-**Low-Risk Optimizations**:
-- Schedule automatic stop/start for dev/test instances during off-hours
-- Enable detailed monitoring for instances lacking performance data
-- Create snapshots before any optimization attempts
-- Apply cost allocation tags based on usage patterns
+`api_call` is allowed when **all three** hold:
 
-**Development Environment Actions** (specific conditions):
-- Auto-stop dev/test instances after 12 hours of <1% CPU usage
-- Automatically resize dev instances that are >5x oversized
-- Implement instance scheduling for known development hours
-- (Only if tagged as "Environment: Development" AND "AutoOptimize: Enabled")
+1. **Reversible.** The action can be undone with a small bounded amount
+   of work and no data loss. Stop is reversible (`start_instances`
+   resumes the instance with EBS root preserved). Terminate is not.
+2. **Gates can be expressed deterministically.** The conditions under
+   which the action is safe must be a finite set of boolean checks
+   computable from `Finding.evidence` — never "the LLM thinks it's
+   okay." The closed `GATE_NAMES` set is the p004 expression.
+3. **Blast radius is bounded.** A wrong call affects one resource the
+   pattern is targeted at, not a cascade. Stopping one EC2 instance
+   affects that instance. Removing a NAT Gateway can affect every
+   private subnet in a VPC — different blast-radius class.
 
-The agent must require **approval before**:
+Future patterns evaluate `api_call` against this principle directly.
+A pattern whose remediation fails any of the three should default to
+`api_call` deferred or forbidden, the way p006 does for route-table
+mutation.
 
-**Production Impact**:
-- Modifying production instance sizes or configurations
-- Stopping or starting production workloads
-- Changing Auto Scaling group configurations
-- Implementing any optimization affecting SLA-bound services
+### Safety mechanisms
 
-**Architecture Changes**:
-- Recommending container or serverless migrations
-- Suggesting major architectural refactoring
-- Proposing cross-service optimization strategies
+- **Closed gate set** (`GATE_NAMES`). `safe_to_fix` is the AND of every
+  gate. New gates require updates to `GATE_NAMES`, the scanner, the
+  agentic doc, and `TestSafeToFixImpliesAllGatesPass` in lockstep.
+- **Single eligibility function**. The modes resolver and the
+  remediator's `command` / `api_call` branches all consult
+  `finding.safe_to_fix`. There is one boolean, not two. The invariant
+  is pinned by `TestResolverAndRemediatorAgreeOnEligibility`.
+- **No unattested idle**. The scanner refuses to emit a finding without
+  ≥280 hourly CPU datapoints. The invariant is pinned by
+  `TestNoUnattestedIdle`.
+- **Validators**. The planner-level validators (UNKNOWN_FINDING_ID,
+  UNSUPPORTED_MODE, MONTHLY_IMPACT_MISMATCH/MISSING) drop any LLM
+  emission that bypasses the resolver's gating.
+- **Audit log**. Every `remediate()` call goes through
+  `audit.audit_remediation` and lands in the SQLite repository,
+  including refusals and AWS failures.
 
-**Cost Impact**:
-- Optimizations requiring instance replacement (storage, networking changes)
-- Spot instance migrations with availability trade-offs
-- Reserved Instance purchase recommendations >$10,000
+### Verification protocol
 
-### Verification Protocol
+After a customer applies a `command` suggestion or runs an `api_call`:
 
-After optimization is deployed, the agent should:
+1. Re-scan within 24h. The instance should appear in `running` state
+   only if the customer or an automation has explicitly started it back
+   up. If not, the finding will not be re-emitted (the scanner filters
+   on `running`).
+2. The audit log row for the original remediation carries the
+   `PreviousState` / `CurrentState` transition and the actor — that's
+   the customer's record of the change.
 
-1. **Immediate Verification (0-2 hours)**:
-   - Confirm instance state changes completed successfully
-   - Verify application health checks pass post-optimization
-   - Monitor error rates and response times for degradation
-   - Check that dependent services remain operational
+### Cost-source enum principle
 
-2. **Performance Monitoring (24-72 hours)**:
-   - Track key performance metrics: response time, throughput, error rate
-   - Monitor CPU, memory, and I/O utilization on resized instances
-   - Verify Auto Scaling behaviors adapt properly to new instance sizes
-   - Check for resource constraint warnings or throttling
+`cost_source` describes the **kind of measurement**, never the region
+or scope. v1 emits `"static_list_price"`. A follow-up PR can add
+`"pricing_api"` (live Pricing API lookup) or `"cur_actual"` (Cost &
+Usage Report) without retrofitting the field's semantics. Region is
+metadata, surfaced via `pricing_region`. This matches p006's enum
+philosophy (`"hourly_only"` / `"cloudwatch_derived"`).
 
-3. **Success Metrics (Weekly)**:
-   - Calculate actual cost savings achieved vs projected
-   - Measure performance impact: latency, availability, user satisfaction
-   - Track optimization success rate and rollback frequency
-   - Monitor long-term utilization patterns post-optimization
+### Expected outcomes
 
-4. **Rollback Criteria**:
-   - Response time degrades >20% from baseline
-   - Error rate increases >2% above normal levels
-   - CPU utilization consistently exceeds 80% post-optimization
-   - Customer complaints or SLA violations related to performance
-   - **Rollback Method**: Restore previous instance configuration from snapshot/AMI
+v1 ships the deterministic detection + 4-mode bulletproof pattern.
+Realized savings happen the moment a customer hits the `command`-mode
+output or invokes `api_call` against an idle non-prod instance. The
+planner-side cross-pattern ranking ships in this PR as a preview
+fixture only; the next PR adds the cross-pattern rubric semantics.
 
-5. **Continuous Learning (Monthly)**:
-   - Analyze optimization effectiveness across different workload types
-   - Refine utilization thresholds based on false positive/negative rates
-   - Update cost savings models with actual results
-   - Improve workload classification algorithms
+### Known gaps (carry-forward)
 
-### Integration Points
-
-**Notification Systems**:
-- Slack notifications to #cost-optimization and service owner channels
-- Email alerts to engineering leads with detailed recommendations
-- PagerDuty integration for critical cost overruns or optimization failures
-
-**Ticketing Systems**:
-- Auto-create Jira epics for significant optimization opportunities
-- Link to AWS Cost Explorer showing projected savings
-- Include performance analysis and suggested implementation timeline
-
-**Monitoring Systems**:
-- CloudWatch dashboard integration for optimization tracking
-- Custom metrics for agent effectiveness and cost impact
-- Application Performance Monitoring (APM) integration for impact assessment
-
-**Configuration Management**:
-- Integration with Infrastructure-as-Code (Terraform, CloudFormation)
-- Git-based change tracking for optimization implementations
-- Configuration drift detection post-optimization
-
-**Cost Management**:
-- AWS Cost Explorer integration with optimization attribution
-- Budget forecasting with projected savings integration
-- Chargeback reporting with optimization impact
-
-### State Management
-
-**Investigation State**:
-```json
-{
-  "instance_id": "i-1234567890abcdef0",
-  "discovery_date": "2026-03-30",
-  "avg_cpu_utilization": 3.2,
-  "current_cost_monthly": 876.48,
-  "optimization_potential": 65,
-  "workload_type": "web_application",
-  "environment": "production",
-  "risk_level": "high",
-  "owner": "platform-team",
-  "recommendations": [
-    {
-      "type": "rightsize",
-      "from": "m5.2xlarge",
-      "to": "m5.large",
-      "monthly_savings": 584.32,
-      "performance_impact": "minimal"
-    }
-  ],
-  "optimization_scheduled": "2026-04-15"
-}
-```
-
-**Performance Baseline**:
-- Historical performance metrics for rollback reference
-- Workload characterization and resource usage patterns
-- Dependency mapping and service interaction patterns
-
-### Safety Mechanisms
-
-**Rate Limiting**:
-- Maximum 5 production instance optimizations per day per service
-- Maximum $5000/day in optimization operations
-- Gradual rollout: optimize 10% of similar instances first
-
-**Circuit Breakers**:
-- Stop optimizations if service degradation detected across >2 instances
-- Pause operations if rollback rate exceeds 10% in 24 hours
-- Emergency stop if customer-impacting incidents linked to optimizations
-
-**Approval Gates**:
-- Engineering approval for production instances >$1000/month
-- Architecture review for optimizations affecting >10% of service capacity
-- Security approval for instances with sensitive data or compliance requirements
-
-**Gradual Rollout**:
-- Blue/green deployment patterns for critical service optimization
-- Canary analysis: optimize 1 instance, monitor, then proceed
-- Automatic rollback triggers based on performance thresholds
-
-**Performance Guards**:
-- Pre-optimization performance profiling and baseline establishment
-- Real-time monitoring during optimization window
-- Automated rollback triggers for performance regression
-
-### Expected Outcomes
-
-**Monthly Cost Savings**: $25,000-100,000 across typical enterprise AWS account
-**Optimization Rate**: 85% of truly idle instances optimized within 30 days
-**Safety Record**: <0.1% service impact rate, <5% optimization rollback rate
-**Performance Impact**: <5% average performance degradation, >90% user satisfaction maintained
-
-**ROI Metrics**:
-- 300-500% ROI on agent development and operational costs
-- 40-60% reduction in compute waste across dev/test environments
-- 15-25% overall compute cost reduction while maintaining service levels
+- Classic ELB (CLB) attachment is not checked. An instance attached
+  only to a CLB will satisfy `no_alb_nlb_attachment=True` — the gate
+  name reflects what's actually checked. Closing the gap requires:
+  - **IAM**: `elasticloadbalancing:DescribeLoadBalancers` (enumerate
+    CLBs per region) and `elasticloadbalancing:DescribeInstanceHealth`
+    (per-CLB instance-target health). The IAM service prefix
+    `elasticloadbalancing` covers both v1 and v2, but the APIs are
+    separate surfaces.
+  - **API / boto3 client**: `boto3.client("elb")` for Classic v1.
+    Note that ALB/NLB v2 uses `boto3.client("elbv2")`; the
+    boto3 service name `"elasticloadbalancing"` is **not valid**
+    (raises `UnknownServiceError`). Per region:
+    `describe_load_balancers()` to list CLBs, then for each CLB
+    `describe_instance_health(LoadBalancerName=<name>)` to collect
+    `InstanceStates[].InstanceId`.
+  - **Contract**: add a new gate `no_classic_elb_attachment` alongside
+    `no_alb_nlb_attachment`, update `GATE_NAMES`, and extend
+    `_build_elb_target_index()` (or split it into v1 / v2
+    sub-builders). Honest gate names matter — a single gate that
+    conflates both surfaces would become a footgun the moment one
+    silently breaks.
+- Cost figures are static us-east-1 list prices. Regions other than
+  `us-east-1` see approximate numbers. Future fix: Pricing API or CUR
+  via a new `cost_source` enum value.
+- Rightsize is not modelled. A persistently low-CPU `m5.2xlarge` is
+  often a candidate for `m5.large` rather than stop. Future pattern.
+- Terminate is intentionally out of scope. Adding it requires its own
+  safety-gate set (snapshots, AMIs, ASG cleanup) and a separate
+  `action_kind`. Future pattern.
 
 ---
 
-*This agentic pattern transforms reactive instance management into proactive, intelligent compute optimization while maintaining enterprise-grade reliability and performance standards.*
+*p004 is the third bulletproof pattern and the second planner-aware
+compute pattern. Together with p001 (storage) and p006 (network), it
+lets the planner rank across all three categories — the foundation
+the next PR's cross-pattern eval rubric is built on.*

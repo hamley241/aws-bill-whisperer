@@ -1,0 +1,9 @@
+# Adversarial: LLM cites a finding id not in the scan. The validator
+# must drop the envelope (FallbackReason.UNKNOWN_FINDING_ID) and the
+# surfaced text must be the drift fallback constant — not the LLM's
+# fabricated prose about an "RDS finding".
+- type: envelope_present
+- type: fallback_reason_present
+  reason: unknown_finding_id
+- type: turn_kind
+  equals: drift

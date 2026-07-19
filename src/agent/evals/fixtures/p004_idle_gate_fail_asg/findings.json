@@ -1,0 +1,69 @@
+[
+  {
+    "id": "40000000-0004-4000-8000-000000000002",
+    "schema_version": "1",
+    "pattern_id": "004",
+    "resource_id": "i-asg-member",
+    "resource_type": "EC2 Instance",
+    "resource_arn": "arn:aws:ec2:us-east-1::instance/i-asg-member",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "monthly_impact_usd": 138.24,
+    "confidence": 0.9,
+    "risk_tier": "high",
+    "summary": "Idle m5.large i-asg-member but in ASG api-tier — stop would be undone immediately.",
+    "explanation": null,
+    "fix_command": "aws ec2 stop-instances --instance-ids i-asg-member --region us-east-1",
+    "fix_pr": null,
+    "safe_to_fix": false,
+    "evidence": {
+      "instance": {
+        "instance_id": "i-asg-member",
+        "instance_type": "m5.large",
+        "instance_family": "m5",
+        "platform": "Linux/UNIX",
+        "launch_time": "2025-11-01T00:00:00+00:00",
+        "age_days": 202,
+        "root_device_type": "ebs",
+        "instance_lifecycle": "on-demand",
+        "name": "api-tier-3",
+        "tags": {
+          "Owner": "api-team",
+          "aws:autoscaling:groupName": "api-tier-asg"
+        }
+      },
+      "utilization": {
+        "avg_cpu_14d": 2.1,
+        "max_cpu_14d": 14.0,
+        "network_bytes_per_hour_14d": 18000.0,
+        "disk_bytes_per_hour_14d": 9500.0,
+        "cpu_datapoint_coverage": 336,
+        "expected_datapoints": 336
+      },
+      "attachments": {
+        "asg_name": "api-tier-asg",
+        "target_group_arns": [],
+        "has_public_ip": false,
+        "eip_allocation_id": null,
+        "public_ip_without_eip": false
+      },
+      "cost": {
+        "monthly_cost_usd": 138.24,
+        "hourly_usd": 0.192,
+        "cost_source": "static_list_price",
+        "pricing_region": "us-east-1",
+        "confidence": "low"
+      },
+      "gates": {
+        "cpu_data_sufficient": true,
+        "age_ok": true,
+        "not_in_asg": false,
+        "no_alb_nlb_attachment": true,
+        "not_prod": true,
+        "ebs_root": true,
+        "not_spot": true
+      }
+    },
+    "metadata": {}
+  }
+]

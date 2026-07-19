@@ -1,0 +1,10 @@
+{
+  "responses": [
+    "{\n  \"answer\": \"Step 1 stops the idle m5.large at $138.24/mo, which is the single largest line item in the plan and has all its safety gates passing. Step 2 PRs the unattached gp2 volume at $80.00/mo; the rank order reflects dollar impact (step 1 then step 2). Both are safe to act on, but step 1 returns more per change.\",\n  \"cited_finding_ids\": [\"40000000-0004-4000-8000-000000000020\", \"10000000-0001-4000-8000-000000000010\"],\n  \"is_in_scope\": true,\n  \"scope_category\": null,\n  \"implies_action_taken\": false\n}\n"
+  ],
+  "metadata": {
+    "prompt_template": "plan_thread_reply",
+    "prompt_template_version": "v1",
+    "note": "Hand-crafted happy fixture. Uses regex-strict-rules: inline canonical $ figures, no arithmetic phrasing, no synthesised totals."
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Two findings across storage and compute. The terraform-managed EBS volume has a snapshot and is safe to remove via PR. The prod-tagged idle m5.large fails the not_prod safety gate, so only dry_run is offered — surfacing it so the operator can decide.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"10000000-0001-4000-8000-000000000001\",\n      \"suggested_mode\": \"pr\",\n      \"monthly_impact_usd\": 80.0,\n      \"rationale\": \"1000GB gp2 volume, 60 days unattached, snapshot 10 days old, managed by Terraform. PR mode is appropriate — let the IaC change flow through review.\",\n      \"order_rank\": 1\n    },\n    {\n      \"finding_id\": \"40000000-0004-4000-8000-000000000010\",\n      \"suggested_mode\": \"dry_run\",\n      \"monthly_impact_usd\": 138.24,\n      \"rationale\": \"Idle m5.large but Env=prod blocks the not_prod gate. Only dry_run is offered; surface the finding so the team can decide whether to retag or stop manually.\",\n      \"order_rank\": 2\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Hand-crafted cross-pattern preview. p001 + p004 in one plan; minimal assertions — the cross-pattern eval PR will tighten the rubric."
+  }
+}

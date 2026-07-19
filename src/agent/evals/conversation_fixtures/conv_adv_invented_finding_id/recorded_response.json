@@ -1,0 +1,10 @@
+{
+  "responses": [
+    "{\n  \"answer\": \"The RDS finding (f-rds-fake-id) is an idle db.t3.medium that's been at near-zero connections for two weeks. It would PR cleanly.\",\n  \"cited_finding_ids\": [\"70000000-0007-4000-8000-FFFFFFFFFFFF\"],\n  \"is_in_scope\": true,\n  \"scope_category\": null,\n  \"implies_action_taken\": false\n}\n"
+  ],
+  "metadata": {
+    "prompt_template": "plan_thread_reply",
+    "prompt_template_version": "v1",
+    "note": "Adversarial: LLM cites a finding id that doesn't exist in the scan. Validator must drop the envelope and surface the drift fallback."
+  }
+}

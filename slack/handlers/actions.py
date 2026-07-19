@@ -71,11 +71,13 @@ def _find_finding_in_threads(finding_id: str) -> tuple[str, Finding] | None:
     store = get_store()
     # Walk InMemoryThreadStore's internal dict (best-effort — the
     # Protocol doesn't define iteration, but the OSS default does).
-    items = getattr(store, "_results", None)
+    # PR #9: the values are ThreadContext wrappers now; the findings
+    # live on context.scan_result.findings.
+    items = getattr(store, "_contexts", None)
     if items is None:
         return None
-    for thread_ts, result in items.items():
-        for finding in result.findings:
+    for thread_ts, context in items.items():
+        for finding in context.scan_result.findings:
             if finding.id == finding_id:
                 return thread_ts, finding
     return None

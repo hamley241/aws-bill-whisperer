@@ -1,0 +1,10 @@
+{
+  "responses": [
+    "{\n  \"answer\": \"Step 1 stops an idle m5.large saving roughly $1658.88/yr based on the 12-month projection of the monthly figure.\",\n  \"cited_finding_ids\": [\"40000000-0004-4000-8000-000000000020\"],\n  \"is_in_scope\": true,\n  \"scope_category\": null,\n  \"implies_action_taken\": false\n}\n"
+  ],
+  "metadata": {
+    "prompt_template": "plan_thread_reply",
+    "prompt_template_version": "v1",
+    "note": "Adversarial: LLM writes an inline annual-projection dollar figure ($1658.88/yr). The arithmetic heuristic (/yr) routes the drop to SYNTHESIZED_COST under regex-strict-rules."
+  }
+}

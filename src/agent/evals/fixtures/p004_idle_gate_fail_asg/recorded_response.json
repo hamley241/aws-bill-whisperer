@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"One idle m5.large but it's an ASG member, so stopping it would be undone immediately. Surfacing the finding via dry_run so the operator can untangle the ASG before considering any change.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"40000000-0004-4000-8000-000000000002\",\n      \"suggested_mode\": \"dry_run\",\n      \"monthly_impact_usd\": 138.24,\n      \"rationale\": \"safe_to_fix is false because the instance is in ASG api-tier-asg. Only dry_run is offered; a stop would be undone by the ASG within minutes.\",\n      \"order_rank\": 1\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Hand-crafted gate-fail path. ASG member; resolver offers only dry_run; planner picks it."
+  }
+}

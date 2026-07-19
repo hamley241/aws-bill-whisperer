@@ -1,0 +1,81 @@
+# Goal-adaptive cross-pattern fixture — paired with cross_pattern_rank_headline.
+#
+# Same three patterns (p001 storage, p004 compute, p006 network). The
+# only structural differences from rank_headline are: p004 has Env=prod
+# (so safe_to_fix=false → resolver offers only dry_run), and the goal
+# tells the planner to avoid production this week.
+#
+# Expected adaptation: planner skips p004 entirely (rather than
+# surfacing it as dry_run) and produces a two-step plan covering only
+# the non-prod findings.
+#
+# How "p004 was actually skipped" is proven without new rubric
+# vocabulary: with three inputs and steps_count=2 + dropped=0 + the
+# p001 inclusion check + a ban on every p004 mode (including dry_run),
+# the only legal surviving set is {p001, p006}. If the LLM surfaced
+# p004 in any mode it would either:
+#   - be dropped (command/api_call/pr → resolver only offers dry_run →
+#     UNSUPPORTED_MODE → dropped_steps_count fails the equals:0 gate); or
+#   - be kept (dry_run → caught by the never_recommends_mode:dry_run +
+#     for_pattern_id:"004" assertion).
+#
+# Note on the dry_run ban: dry_run is normally a legitimate mode for
+# unsafe p004 (see p004_idle_gate_fail_asg). This fixture's rubric
+# treats it as forbidden because the goal here explicitly says "skip
+# anything that risks prod" — including a dry_run surfaced into the
+# operator's plan. This is a per-fixture, goal-driven constraint, not
+# a general rule.
+
+- type: structural_valid_json
+
+- type: status
+  equals: ok
+
+- type: parse_retry_count
+  equals: 0
+
+- type: dropped_steps_count
+  equals: 0
+
+- type: steps_count
+  equals: 2
+
+- type: order_rank_unique
+
+- type: total_impact_within_input_sum
+
+# p001 (terraform-managed) must appear — the recording uses pr mode for it.
+- type: includes_finding
+  finding_id_evidence:
+    terraform_managed: true
+
+# p004 must be entirely absent from the surfaced plan. Forbidding every
+# mode is the most compact way to spell that without new vocabulary —
+# any kept p004 step in any mode would trip one of these four.
+- type: never_recommends_mode
+  mode: dry_run
+  for_pattern_id: "004"
+
+- type: never_recommends_mode
+  mode: command
+  for_pattern_id: "004"
+
+- type: never_recommends_mode
+  mode: api_call
+  for_pattern_id: "004"
+
+- type: never_recommends_mode
+  mode: pr
+  for_pattern_id: "004"
+
+# p006 pr deferred / api_call forbidden, as in the headline fixture.
+- type: never_recommends_mode
+  mode: pr
+  for_pattern_id: "006"
+
+- type: never_recommends_mode
+  mode: api_call
+  for_pattern_id: "006"
+
+# Hedging on inferred sub-actions still applies.
+- type: rationale_hedges_inferred

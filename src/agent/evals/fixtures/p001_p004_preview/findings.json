@@ -1,0 +1,95 @@
+[
+  {
+    "id": "10000000-0001-4000-8000-000000000001",
+    "schema_version": "1",
+    "pattern_id": "001",
+    "resource_id": "vol-cross-1",
+    "resource_type": "EBS Volume",
+    "resource_arn": "arn:aws:ec2:us-east-1::volume/vol-cross-1",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "monthly_impact_usd": 80.0,
+    "confidence": 0.92,
+    "risk_tier": "high",
+    "summary": "Delete 1000GB gp2 volume (age 60d, snapshot: yes, terraform-managed)",
+    "explanation": null,
+    "fix_command": "aws ec2 delete-volume --volume-id vol-cross-1 --region us-east-1",
+    "fix_pr": null,
+    "evidence": {
+      "size_gb": 1000,
+      "volume_type": "gp2",
+      "age_days": 60,
+      "has_snapshot": true,
+      "latest_snapshot_age_days": 10,
+      "snapshot_count": 1,
+      "terraform_managed": true,
+      "tags": {"managed-by-terraform": "true"}
+    },
+    "metadata": {},
+    "safe_to_fix": true
+  },
+  {
+    "id": "40000000-0004-4000-8000-000000000010",
+    "schema_version": "1",
+    "pattern_id": "004",
+    "resource_id": "i-cross-prod",
+    "resource_type": "EC2 Instance",
+    "resource_arn": "arn:aws:ec2:us-east-1::instance/i-cross-prod",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "monthly_impact_usd": 138.24,
+    "confidence": 0.9,
+    "risk_tier": "high",
+    "summary": "Idle m5.large i-cross-prod but Env=prod — only dry_run is safe.",
+    "explanation": null,
+    "fix_command": "aws ec2 stop-instances --instance-ids i-cross-prod --region us-east-1",
+    "fix_pr": null,
+    "safe_to_fix": false,
+    "evidence": {
+      "instance": {
+        "instance_id": "i-cross-prod",
+        "instance_type": "m5.large",
+        "instance_family": "m5",
+        "platform": "Linux/UNIX",
+        "launch_time": "2025-10-01T00:00:00+00:00",
+        "age_days": 233,
+        "root_device_type": "ebs",
+        "instance_lifecycle": "on-demand",
+        "name": "billing-cron",
+        "tags": {"Env": "prod", "Owner": "billing-team"}
+      },
+      "utilization": {
+        "avg_cpu_14d": 1.8,
+        "max_cpu_14d": 11.0,
+        "network_bytes_per_hour_14d": 20000.0,
+        "disk_bytes_per_hour_14d": 12000.0,
+        "cpu_datapoint_coverage": 336,
+        "expected_datapoints": 336
+      },
+      "attachments": {
+        "asg_name": null,
+        "target_group_arns": [],
+        "has_public_ip": false,
+        "eip_allocation_id": null,
+        "public_ip_without_eip": false
+      },
+      "cost": {
+        "monthly_cost_usd": 138.24,
+        "hourly_usd": 0.192,
+        "cost_source": "static_list_price",
+        "pricing_region": "us-east-1",
+        "confidence": "low"
+      },
+      "gates": {
+        "cpu_data_sufficient": true,
+        "age_ok": true,
+        "not_in_asg": true,
+        "no_alb_nlb_attachment": true,
+        "not_prod": false,
+        "ebs_root": true,
+        "not_spot": true
+      }
+    },
+    "metadata": {}
+  }
+]

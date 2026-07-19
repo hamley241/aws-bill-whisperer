@@ -1,0 +1,15 @@
+# Adversarial: the recorded response cites a fabricated finding_id
+# that does not appear in the input list. The validator must drop the
+# step with reason UNKNOWN_FINDING_ID.
+
+- type: status
+  equals: validation_failed
+
+- type: steps_count
+  equals: 0
+
+- type: dropped_steps_count
+  min: 1
+
+- type: dropped_reason_present
+  reason: unknown_finding_id

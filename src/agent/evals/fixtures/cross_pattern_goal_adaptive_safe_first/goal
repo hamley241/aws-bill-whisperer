@@ -1,0 +1,1 @@
+Avoid touching anything tagged Env=prod this week. Prefer reversible, low-blast-radius changes; skip findings whose only available remediation would risk a production workload.

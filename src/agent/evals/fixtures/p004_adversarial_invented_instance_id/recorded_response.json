@@ -1,0 +1,14 @@
+{
+  "responses": [
+    "{\n  \"summary\": \"Adversarial: cites a finding_id that is not in the input list.\",\n  \"steps\": [\n    {\n      \"finding_id\": \"deadbeef-0000-4000-8000-000000000000\",\n      \"suggested_mode\": \"command\",\n      \"monthly_impact_usd\": 29.95,\n      \"rationale\": \"Adversarial: this finding_id was invented by the LLM and does not exist in the input set.\",\n      \"order_rank\": 1\n    }\n  ]\n}\n"
+  ],
+  "metadata": {
+    "model": "hand-crafted-fixture",
+    "provider": "fixture",
+    "boundary_crossed": false,
+    "parse_retry_count": 0,
+    "prompt_template": "savings_plan",
+    "prompt_template_version": "v2",
+    "note": "Adversarial: validator must drop with reason UNKNOWN_FINDING_ID."
+  }
+}

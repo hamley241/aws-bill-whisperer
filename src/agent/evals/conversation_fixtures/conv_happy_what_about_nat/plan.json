@@ -1,0 +1,55 @@
+{
+  "plan_id": "p9-shared-plan-id",
+  "goal": "Rank by impact and recommend the safest mode for each",
+  "status": "ok",
+  "steps": [
+    {
+      "finding_id": "40000000-0004-4000-8000-000000000020",
+      "pattern_id": "004",
+      "suggested_mode": "command",
+      "monthly_impact_usd": 138.24,
+      "rationale": "Idle m5.large i-cross-stop, avg CPU 1.8% over 14d, all safety gates pass. Largest single saving; emit the stop-instances command.",
+      "order_rank": 1
+    },
+    {
+      "finding_id": "10000000-0001-4000-8000-000000000010",
+      "pattern_id": "001",
+      "suggested_mode": "pr",
+      "monthly_impact_usd": 80.0,
+      "rationale": "Unattached 1000GB gp2 volume vol-cross-1, terraform-managed; route deletion through IaC PR.",
+      "order_rank": 2
+    },
+    {
+      "finding_id": "60000000-0006-4000-8000-000000000030",
+      "pattern_id": "006",
+      "suggested_mode": "dry_run",
+      "monthly_impact_usd": 32.4,
+      "rationale": "NAT nat-cross-dev has hourly_only cost source (Flow Logs absent); observe-only with reassess pending data.",
+      "order_rank": 3,
+      "recommended_sequence": [
+        {
+          "candidate_id": "cand-gateway-s3",
+          "action_kind": "observe_and_reassess",
+          "est_monthly_savings_usd": 0.0,
+          "evidence_tier": "inferred",
+          "rationale": "S3 Gateway is a candidate but no observed traffic data; enable Flow Logs and re-scan to quantify."
+        }
+      ]
+    }
+  ],
+  "dropped_steps": [],
+  "total_monthly_impact_usd": 250.64,
+  "summary": "Three steps across compute, storage, and network. Stop the idle m5.large (largest single win), PR the terraform-managed 1TB gp2 volume, surface the NAT as observe-only.",
+  "confidence": 0.85,
+  "prompt_template": "savings_plan",
+  "prompt_template_version": "v2",
+  "model": "fixture",
+  "provider": "fixture",
+  "boundary_crossed": false,
+  "parse_retry_count": 0,
+  "input_finding_ids": [
+    "10000000-0001-4000-8000-000000000010",
+    "40000000-0004-4000-8000-000000000020",
+    "60000000-0006-4000-8000-000000000030"
+  ]
+}
