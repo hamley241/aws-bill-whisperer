@@ -20,6 +20,11 @@ from typing import Any, Callable
 
 CURRENT_SCHEMA_VERSION = "1"
 
+# The file had no prior truncation convention; establishing one here.
+# A scan error message is str(exc), which for boto3 can be long — cap it
+# so a runaway message can't bloat a persisted record.
+SCAN_ERROR_MESSAGE_CAP = 500
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -94,6 +99,33 @@ class PlanRecord:
     actor: str | None
     created_at: str = field(default_factory=_now)
     schema_version: str = CURRENT_SCHEMA_VERSION
+
+
+@dataclass
+class ScanError:
+    """One region (or global) scan failure, captured so coverage is
+    measurable rather than silently swallowed.
+
+    `region=None` records a non-regional (global) failure — e.g. p008's
+    S3 `list_buckets()` is a global call, so a failure there is not
+    attributable to any single region and must not be mislabelled.
+
+    `message` is `str(exc)`, truncated to SCAN_ERROR_MESSAGE_CAP chars.
+
+    Unlike the records above, this carries no `id`, `scan_id` or
+    `observed_at`: it is not a persisted record yet. Persistence (and those
+    fields) come in PR-2, which adds regions_requested / regions_scanned to
+    ScanResult; today ScanError lives only in-memory on pattern.scan_errors.
+    """
+    pattern_id: str
+    region: str | None      # None for a non-regional (global) failure
+    error_type: str         # exception class name, e.g. "ClientError"
+    message: str            # str(exc), truncated to SCAN_ERROR_MESSAGE_CAP
+    schema_version: str = CURRENT_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        if self.message is not None and len(self.message) > SCAN_ERROR_MESSAGE_CAP:
+            self.message = self.message[:SCAN_ERROR_MESSAGE_CAP]
 
 
 @dataclass

@@ -139,20 +139,9 @@ class NatGatewayPattern(BasePattern):
     # scan
     # ------------------------------------------------------------------
     def scan(self, regions: list[str] = None) -> list[Finding]:
-        regions = regions or self.get_all_regions()
-        self._findings = []
-
-        for region in regions:
-            try:
-                self._findings.extend(self._scan_region(region))
-            except Exception:  # pragma: no cover — surface in caller
-                # Structured surfacing so log aggregators see the region and
-                # stack trace; never swallow into stdout.
-                logger.exception(
-                    "p006 scan failed for region %s; continuing", region,
-                )
-                continue
-        return self._findings
+        # BasePattern owns the per-region loop, the SUPPORTED_REGIONS
+        # filter, and record-error-and-continue (coverage capture).
+        return self.run_across_regions(regions)
 
     def _scan_region(self, region: str) -> list[Finding]:
         ec2 = self.session.client("ec2", region_name=region)

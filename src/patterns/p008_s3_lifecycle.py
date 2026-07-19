@@ -39,8 +39,12 @@ class S3LifecyclePattern(BasePattern):
         self.min_bucket_size_gb = min_bucket_size_gb
 
     def scan(self, regions: list[str] = None) -> list[Finding]:
-        # S3 is a global service, but we use us-east-1 for API calls
-        self._findings = []
+        # S3 is a global service, but we use us-east-1 for API calls.
+        # Reset per-scan state FIRST. p008 writes scan_errors via
+        # _record_region_error(None, exc) on a top-level failure, so it must
+        # clear scan_errors too — a bare self._findings = [] left the prior
+        # scan's ScanError stale on a reused instance. See BasePattern._begin_scan.
+        self._begin_scan()
 
         try:
             s3 = self.session.client('s3', region_name='us-east-1')
@@ -126,8 +130,14 @@ class S3LifecyclePattern(BasePattern):
                     logger.exception("p008 error analyzing bucket %s", bucket_name)
                     continue
 
-        except Exception:
+        except Exception as exc:
             logger.exception("p008 error scanning S3 buckets")
+            # p008 is a NON-regional pattern: list_buckets() is one global
+            # call, so a top-level failure here is a global coverage failure,
+            # not a per-region one. Record it via the base contract with
+            # region=None. Control flow is unchanged — we still fall through
+            # and return whatever findings were gathered before the failure.
+            self._record_region_error(None, exc)
 
         return self._findings
 
