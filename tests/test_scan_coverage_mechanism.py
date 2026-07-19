@@ -304,22 +304,40 @@ def test_is_migrated_accepts_super_delegation():
 # define a per-region entry point. This is a guardrail against misuse (a
 # regional pattern dodging migration), not a proof of non-regionality.
 # ---------------------------------------------------------------------------
-def test_non_regional_patterns_do_not_define_scan_region():
-    patterns = {p.PATTERN_ID: p for p in discover_patterns()}
-    for pid in NON_REGIONAL:
+def _non_regional_violations(patterns: dict, non_regional: set) -> list[str]:
+    """The guardrail's one and only check, shared by both tests below.
+
+    Returns the ids of patterns listed non-regional that nonetheless define
+    their OWN `_scan_region` (an own attribute, not the inherited
+    BasePattern._scan_region stub) — i.e. the regional patterns parked in
+    NON_REGIONAL to dodge migration, which is exactly what this rule catches.
+    An empty list means the rule sees no violations.
+    """
+    violations = []
+    for pid in non_regional:
         cls = patterns.get(pid)
         assert cls is not None, f"NON_REGIONAL lists unknown pattern {pid}"
-        # Own attribute, not the inherited BasePattern._scan_region stub.
-        assert "_scan_region" not in cls.__dict__, (
-            f"pattern {pid} is listed NON_REGIONAL but defines _scan_region — "
-            "a genuinely non-regional pattern has no per-region entry point. "
-            "This looks like a regional pattern parked here to dodge migration."
-        )
+        if "_scan_region" in cls.__dict__:
+            violations.append(pid)
+    return violations
+
+
+def test_non_regional_patterns_do_not_define_scan_region():
+    # The REAL registry and the real NON_REGIONAL set: no violations.
+    patterns = {p.PATTERN_ID: p for p in discover_patterns()}
+    violations = _non_regional_violations(patterns, NON_REGIONAL)
+    assert not violations, (
+        f"patterns {violations} are listed NON_REGIONAL but define _scan_region "
+        "— a genuinely non-regional pattern has no per-region entry point. "
+        "This looks like a regional pattern parked here to dodge migration."
+    )
 
 
 def test_non_regional_guardrail_catches_a_regional_pattern():
-    # A stub that DOES define _scan_region must fail the structural check
-    # even if someone lists it as non-regional.
+    # Feed the helper a STUB registry containing a pattern that DOES define
+    # _scan_region while listed as non-regional. The helper must REPORT it —
+    # this proves the check actually fires, which an assertion about the
+    # fixture's own __dict__ never would.
     class _FakeNonRegional(BasePattern):
         PATTERN_ID = "995"
         NAME = "FakeNonRegional"
@@ -331,7 +349,9 @@ def test_non_regional_guardrail_catches_a_regional_pattern():
         def _scan_region(self, region):
             return []
 
-    assert "_scan_region" in _FakeNonRegional.__dict__
+    patterns = {"995": _FakeNonRegional}
+    violations = _non_regional_violations(patterns, {"995"})
+    assert violations == ["995"]
 
 
 # ---------------------------------------------------------------------------
