@@ -127,11 +127,28 @@ class S3LifecyclePattern(BasePattern):
                         continue  # Bucket was deleted during scan
                     if error_code == 'AccessDenied' or 'AccessDenied' in str(e):
                         continue  # Skip buckets we can't access
-                    logger.exception("p008 error analyzing bucket %s", bucket_name)
+                    logger.exception(
+                        "p008 error analyzing bucket %s", bucket_name,
+                        extra={
+                            "pattern_id": self.PATTERN_ID,
+                            "outcome": "failed",
+                            "bucket_name": bucket_name,
+                            "exception_type": type(e).__name__,
+                            "exception_message": str(e),
+                        },
+                    )
                     continue
 
         except Exception as exc:
-            logger.exception("p008 error scanning S3 buckets")
+            logger.exception(
+                "p008 error scanning S3 buckets",
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
             # p008 is a NON-regional pattern: list_buckets() is one global
             # call, so a top-level failure here is a global coverage failure,
             # not a per-region one. Record it via the base contract with

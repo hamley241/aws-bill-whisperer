@@ -42,8 +42,17 @@ class CloudWatchMetricsPattern(BasePattern):
             try:
                 cloudwatch = self.session.client('cloudwatch', region_name=region)
                 self._analyze_custom_metrics(cloudwatch, region)
-            except Exception:
-                logger.exception("p019 error scanning CloudWatch in region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p019 error scanning CloudWatch in region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -60,8 +69,17 @@ class CloudWatchMetricsPattern(BasePattern):
             for namespace in custom_namespaces:
                 self._analyze_namespace(cloudwatch, namespace, region)
 
-        except Exception:
-            logger.exception("p019 error analyzing CloudWatch metrics in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p019 error analyzing CloudWatch metrics in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _list_namespaces(self, cloudwatch) -> list[str]:
         """List all metric namespaces."""
@@ -72,8 +90,16 @@ class CloudWatchMetricsPattern(BasePattern):
             for page in paginator.paginate(PaginationConfig={'MaxItems': 1000}):
                 for metric in page.get('Metrics', []):
                     namespaces.add(metric['Namespace'])
-        except Exception:
-            logger.exception("p019 error listing namespaces")
+        except Exception as exc:
+            logger.exception(
+                "p019 error listing namespaces",
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
         return list(namespaces)
 
     def _analyze_namespace(self, cloudwatch, namespace: str, region: str):
@@ -182,8 +208,18 @@ class CloudWatchMetricsPattern(BasePattern):
             )
             self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p019 error analyzing namespace %s", namespace)
+        except Exception as exc:
+            logger.exception(
+                "p019 error analyzing namespace %s", namespace,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "namespace": namespace,
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _calculate_metric_cost(self, metric_count: int) -> float:
         """Calculate monthly cost for a number of custom metrics."""

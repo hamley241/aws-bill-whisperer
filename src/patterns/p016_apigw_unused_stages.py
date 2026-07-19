@@ -57,8 +57,17 @@ class APIGWUnusedStagesPattern(BasePattern):
                 # Scan HTTP APIs (v2)
                 self._scan_http_apis(region, start_time, end_time)
 
-            except Exception:
-                logger.exception("p016 error scanning API Gateway in region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p016 error scanning API Gateway in region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -88,8 +97,18 @@ class APIGWUnusedStagesPattern(BasePattern):
                         cloudwatch, api_id, api_name, stage,
                         region, start_time, end_time
                     )
-            except Exception:
-                logger.exception("p016 error getting stages for %s", api_name)
+            except Exception as exc:
+                logger.exception(
+                    "p016 error getting stages for %s", api_name,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "api_name": api_name,
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
     def _check_rest_stage(self, cloudwatch, api_id: str, api_name: str,
@@ -204,8 +223,17 @@ class APIGWUnusedStagesPattern(BasePattern):
             paginator = apigwv2.get_paginator("get_apis")
             for page in paginator.paginate():
                 apis.extend(page.get("Items", []))
-        except Exception:
-            logger.exception("p016 error listing HTTP APIs in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p016 error listing HTTP APIs in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
             return
 
         for api in apis:
@@ -225,8 +253,18 @@ class APIGWUnusedStagesPattern(BasePattern):
                         cloudwatch, api_id, api_name, stage,
                         protocol_type, region, start_time, end_time
                     )
-            except Exception:
-                logger.exception("p016 error getting stages for HTTP API %s", api_name)
+            except Exception as exc:
+                logger.exception(
+                    "p016 error getting stages for HTTP API %s", api_name,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "api_name": api_name,
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
     def _check_http_stage(self, cloudwatch, api_id: str, api_name: str,

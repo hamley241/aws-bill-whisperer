@@ -54,8 +54,17 @@ class LambdaMemoryPattern(BasePattern):
                             region, start_time, end_time
                         )
 
-            except Exception:
-                logger.exception("p015 error scanning Lambda in region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p015 error scanning Lambda in region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -308,9 +317,27 @@ class LambdaMemoryPattern(BasePattern):
                     FunctionName=function_name,
                     MemorySize=recommended_memory
                 )
-                logger.info("p015 updated %s memory to %sMB", function_name, recommended_memory)
-            except Exception:
-                logger.exception("p015 error updating %s", function_name)
+                logger.info(
+                    "p015 updated %s memory to %sMB", function_name, recommended_memory,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "ok",
+                        "function_name": function_name,
+                    },
+                )
+            except Exception as exc:
+                logger.exception(
+                    "p015 error updating %s", function_name,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "function_name": function_name,
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 return False
             return RemediationResult(
                 finding_id=finding.id,

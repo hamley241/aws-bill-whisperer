@@ -182,6 +182,8 @@ Slack, CLI, web UI, and (later) the local dashboard are **presentation layers** 
 
 A new surface (e.g., a Teams integration, a VSCode extension) must be implementable by writing only a presentation module. If a new surface needs to fork detection or remediation logic to work, the abstraction is wrong and must be fixed first.
 
+Pattern authors: a pattern never `print()`s — it logs with `logger.exception`/`logger.info` carrying structured `extra={"pattern_id", "region", "outcome", ...}` (see `p004_idle_ec2.py` for the reference shape), because those records are read by machines, not just humans.
+
 ### 4. Remediation modes are composable, not branched
 
 Remediation is not "OSS does commands, paid does PRs." Every remediation supports a `mode` parameter:

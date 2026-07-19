@@ -39,8 +39,17 @@ class SecretsManagerPattern(BasePattern):
             try:
                 secretsmanager = self.session.client('secretsmanager', region_name=region)
                 self._scan_secrets(secretsmanager, region)
-            except Exception:
-                logger.exception("p020 error scanning Secrets Manager in region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p020 error scanning Secrets Manager in region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -54,8 +63,17 @@ class SecretsManagerPattern(BasePattern):
                 for secret_entry in page.get('SecretList', []):
                     self._analyze_secret(secretsmanager, secret_entry, region)
 
-        except Exception:
-            logger.exception("p020 error listing secrets in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p020 error listing secrets in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _analyze_secret(self, secretsmanager, secret_entry: dict, region: str):
         """Analyze a single secret for usage and rotation status."""
@@ -151,8 +169,18 @@ class SecretsManagerPattern(BasePattern):
             )
             self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p020 error analyzing secret %s", secret_entry.get("Name", "unknown"))
+        except Exception as exc:
+            logger.exception(
+                "p020 error analyzing secret %s", secret_entry.get("Name", "unknown"),
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "secret_name": secret_entry.get("Name", "unknown"),
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
         if mode != RemediationMode.API_CALL:
@@ -178,9 +206,27 @@ class SecretsManagerPattern(BasePattern):
                     SecretId=finding.resource_id,
                     RecoveryWindowInDays=30
                 )
-                logger.info("p020 scheduled deletion for secret %s (recovery possible for 30 days)", finding.resource_id)
-            except Exception:
-                logger.exception("p020 error deleting secret %s", finding.resource_id)
+                logger.info(
+                    "p020 scheduled deletion for secret %s (recovery possible for 30 days)", finding.resource_id,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": finding.region,
+                        "outcome": "ok",
+                        "secret_name": finding.resource_id,
+                    },
+                )
+            except Exception as exc:
+                logger.exception(
+                    "p020 error deleting secret %s", finding.resource_id,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": finding.region,
+                        "outcome": "failed",
+                        "secret_name": finding.resource_id,
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 return False
             return RemediationResult(
                 finding_id=finding.id,

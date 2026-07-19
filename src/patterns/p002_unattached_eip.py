@@ -56,8 +56,17 @@ class UnattachedEIPPattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-            except Exception:
-                logger.exception("p002 error scanning region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p002 error scanning region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -69,7 +78,15 @@ class UnattachedEIPPattern(BasePattern):
 
             ec2 = self.session.client('ec2', region_name=finding.region)
             ec2.release_address(AllocationId=finding.resource_id)
-            logger.info("p002 released EIP %s", finding.resource_id)
+            logger.info(
+                "p002 released EIP %s", finding.resource_id,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": finding.region,
+                    "outcome": "ok",
+                    "eip_allocation_id": finding.resource_id,
+                },
+            )
             return RemediationResult(
                 finding_id=finding.id,
                 pattern_id=self.PATTERN_ID,

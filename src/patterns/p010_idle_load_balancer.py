@@ -44,8 +44,17 @@ class IdleLoadBalancerPattern(BasePattern):
                 # Check Classic Load Balancers
                 self._scan_classic_elb(region)
 
-            except Exception:
-                logger.exception("p010 error scanning load balancers in region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p010 error scanning load balancers in region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -167,8 +176,17 @@ class IdleLoadBalancerPattern(BasePattern):
                 )
                 self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p010 error scanning ELBv2 in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p010 error scanning ELBv2 in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _scan_classic_elb(self, region: str) -> None:
         """Scan Classic Load Balancers"""
@@ -269,8 +287,17 @@ class IdleLoadBalancerPattern(BasePattern):
                 )
                 self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p010 error scanning Classic ELB in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p010 error scanning Classic ELB in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _get_lb_request_count(
         self,
@@ -357,7 +384,16 @@ class IdleLoadBalancerPattern(BasePattern):
                 else:
                     raise ValueError(f"Missing ARN for {finding.resource_id}")
 
-            logger.info("p010 deleted %s %s", finding.resource_type, finding.resource_id)
+            logger.info(
+                "p010 deleted %s %s", finding.resource_type, finding.resource_id,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": finding.region,
+                    "outcome": "ok",
+                    "resource_type": finding.resource_type,
+                    "load_balancer_id": finding.resource_id,
+                },
+            )
             return RemediationResult(
                 finding_id=finding.id,
                 pattern_id=self.PATTERN_ID,

@@ -58,8 +58,17 @@ class ECSFargateIdlePattern(BasePattern):
                         region, start_time, end_time
                     )
 
-            except Exception:
-                logger.exception("p014 error scanning ECS in region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p014 error scanning ECS in region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -87,8 +96,18 @@ class ECSFargateIdlePattern(BasePattern):
                         ecs, cloudwatch, service, cluster_name,
                         region, start_time, end_time
                     )
-            except Exception:
-                logger.exception("p014 error describing services")
+            except Exception as exc:
+                logger.exception(
+                    "p014 error describing services",
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "cluster_name": cluster_name,
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
     def _check_service(self, ecs, cloudwatch, service: dict, cluster_name: str,
