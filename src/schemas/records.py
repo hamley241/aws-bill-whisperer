@@ -111,6 +111,11 @@ class ScanError:
     attributable to any single region and must not be mislabelled.
 
     `message` is `str(exc)`, truncated to SCAN_ERROR_MESSAGE_CAP chars.
+
+    Unlike the records above, this carries no `id`, `scan_id` or
+    `observed_at`: it is not a persisted record yet. Persistence (and those
+    fields) come in PR-2, which adds regions_requested / regions_scanned to
+    ScanResult; today ScanError lives only in-memory on pattern.scan_errors.
     """
     pattern_id: str
     region: str | None      # None for a non-regional (global) failure

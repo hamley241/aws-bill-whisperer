@@ -6,10 +6,14 @@ ScanError and the scan continues; SUPPORTED_REGIONS narrows the region
 scope; and the migration debt (patterns not yet on run_across_regions)
 is explicit and can only shrink.
 """
+import ast
 import inspect
 import sys
+import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -111,47 +115,177 @@ def test_supported_regions_none_scans_all():
 
 
 # ---------------------------------------------------------------------------
-# 3. Migration debt is explicit and can only shrink.
+# 3. Migration debt is explicit — and it is TWO categories, different in kind.
 # ---------------------------------------------------------------------------
 #
-# TEMPORARY migration debt: patterns whose scan() still holds the region
-# loop INLINE rather than delegating to BasePattern.run_across_regions.
-# This list MUST reach empty as the remaining patterns migrate in later
-# batches. It is NOT a permanent exemption list — a pattern that migrates
-# must be removed from here, or the shrink assertion below fails.
+# TEMPORARY debt: REGIONAL patterns whose scan() still holds the region loop
+# INLINE rather than delegating to BasePattern.run_across_regions. These can
+# and MUST migrate; this set must reach empty as later batches land. It is
+# NOT a permanent exemption list — a migrated pattern removed from here, or a
+# new inline pattern not added, fails the classification assertion below.
 NOT_YET_MIGRATED = {
-    "002", "003", "004", "005", "007", "008", "009", "010", "011",
+    "002", "003", "004", "005", "007", "009", "010", "011",
     "012", "013", "014", "015", "016", "017", "018", "019", "020",
+}
+
+# PERMANENT and principled — NOT debt: patterns that legitimately do not scan
+# per-region and never will, so the _scan_region template does not apply.
+# p008 makes ONE global list_buckets() call and derives each bucket's region
+# from the response; forcing it through the per-region loop would duplicate
+# buckets or invent fake region labels. These report coverage failures as a
+# global ScanError(region=None), not through run_across_regions.
+NON_REGIONAL = {
+    "008",
 }
 
 
 def _is_migrated(pattern_cls) -> bool:
-    """A pattern is migrated when its scan() delegates to the base loop."""
+    """A pattern is migrated when its scan() makes a REAL call to
+    self.run_across_regions(...) — not merely mentions the name.
+
+    We parse scan() with ast and require an ast.Call whose func is an
+    ast.Attribute `run_across_regions` on an ast.Name `self`. A match in a
+    comment, docstring, string literal, or dead branch is not a call and
+    does not count: approximate (substring) evidence is exactly what lets
+    drift persist, the same lesson the SERVICES and logging guards encode.
+    """
     try:
-        source = inspect.getsource(pattern_cls.scan)
+        source = textwrap.dedent(inspect.getsource(pattern_cls.scan))
     except (OSError, TypeError):
         return False
-    return "run_across_regions" in source
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "run_across_regions"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "self"
+        ):
+            return True
+    return False
 
 
-def test_migration_debt_is_explicit_and_shrinking():
+def test_every_pattern_in_exactly_one_category():
     patterns = {p.PATTERN_ID: p for p in discover_patterns()}
 
     migrated = {pid for pid, cls in patterns.items() if _is_migrated(cls)}
-    not_migrated = {pid for pid in patterns if pid not in migrated}
 
-    # Every discovered pattern is accounted for: either migrated, or on
-    # the explicit debt list — never silently unclassified.
-    assert not_migrated == NOT_YET_MIGRATED, (
-        "A pattern's migration status changed. If you migrated a pattern to "
-        "run_across_regions, remove its ID from NOT_YET_MIGRATED. If you "
-        "added a new pattern, migrate it or add it to the list.\n"
-        f"  still inline (detected): {sorted(not_migrated)}\n"
-        f"  NOT_YET_MIGRATED (list): {sorted(NOT_YET_MIGRATED)}"
-    )
+    # Every discovered pattern lands in exactly one of the three categories:
+    # migrated, NOT_YET_MIGRATED (temporary), or NON_REGIONAL (permanent).
+    for pid in patterns:
+        memberships = [
+            name for name, group in (
+                ("migrated", migrated),
+                ("NOT_YET_MIGRATED", NOT_YET_MIGRATED),
+                ("NON_REGIONAL", NON_REGIONAL),
+            ) if pid in group
+        ]
+        assert len(memberships) == 1, (
+            f"pattern {pid} must be in exactly one category, is in: "
+            f"{memberships or ['none']}. If you migrated it to "
+            "run_across_regions, remove it from NOT_YET_MIGRATED. If it is a "
+            "new pattern, migrate it or classify it."
+        )
 
-    # A migrated pattern must not linger on the debt list.
+    # The debt list can only shrink: a migrated pattern must not linger on it.
     assert migrated.isdisjoint(NOT_YET_MIGRATED)
+
+    # p008 is permanent-non-regional, not temporary debt.
+    assert "008" in NON_REGIONAL
+    assert "008" not in NOT_YET_MIGRATED
 
     # The two patterns this stage migrates are proven migrated.
     assert {"001", "006"} <= migrated
+
+
+def test_is_migrated_not_fooled_by_a_mention():
+    # scan() only MENTIONS run_across_regions in a comment and a string
+    # literal; it never calls it. Must be reported NOT migrated.
+    class _MentionOnly(BasePattern):
+        PATTERN_ID = "998"
+        NAME = "MentionOnly"
+        CATEGORY = Category.GENERAL
+
+        def scan(self, regions=None):
+            # run_across_regions would go here one day
+            note = "run_across_regions"
+            return [note] and []
+
+    assert _is_migrated(_MentionOnly) is False
+
+
+# ---------------------------------------------------------------------------
+# 4. Per-scan state resets before anything that can raise.
+# ---------------------------------------------------------------------------
+def test_stale_state_cleared_when_region_resolution_fails():
+    # First scan succeeds and populates state.
+    pattern = _StubPattern(lambda r: [_finding(r)])
+    pattern.scan(regions=["us-east-1"])
+    assert pattern._findings
+    # Seed a stale error too, to prove both lists are cleared.
+    pattern.scan_errors.append(
+        ScanError(pattern_id="999", region="us-east-1",
+                  error_type="X", message="stale")
+    )
+
+    # Second scan resolves regions via get_all_regions(), which raises.
+    pattern.get_all_regions = MagicMock(side_effect=RuntimeError("no creds"))
+
+    with pytest.raises(RuntimeError):
+        pattern.scan(regions=None)
+
+    # State was reset as the first act, before the raise propagated.
+    assert pattern._findings == []
+    assert pattern.scan_errors == []
+
+
+# ---------------------------------------------------------------------------
+# 5. An empty SUPPORTED_REGIONS intersection is recorded, not silent.
+# ---------------------------------------------------------------------------
+def test_empty_region_intersection_records_scan_error():
+    pattern = _StubPattern(lambda r: [_finding(r)])
+    pattern.SUPPORTED_REGIONS = ["ap-south-1"]  # matches nothing requested
+
+    findings = pattern.scan(regions=["us-east-1", "eu-west-1"])
+
+    # Returns [] without raising, and never scanned a region.
+    assert findings == []
+    assert pattern.calls == []
+
+    # But the coverage fact is recorded, not swallowed.
+    assert len(pattern.scan_errors) == 1
+    err = pattern.scan_errors[0]
+    assert isinstance(err, ScanError)
+    assert err.region is None
+    assert err.error_type == "NoApplicableRegions"
+    assert "SUPPORTED_REGIONS" in err.message
+
+
+# ---------------------------------------------------------------------------
+# 6. p008 records a global failure (region=None) and does not propagate.
+# ---------------------------------------------------------------------------
+def test_p008_records_global_scan_error_on_top_level_failure():
+    from patterns.p008_s3_lifecycle import S3LifecyclePattern
+
+    session = MagicMock()
+    # list_buckets() (reached via s3 client) blows up at the top level.
+    session.client.return_value.list_buckets.side_effect = RuntimeError(
+        "list_buckets exploded"
+    )
+    pattern = S3LifecyclePattern(session=session)
+
+    # Returns rather than propagating.
+    findings = pattern.scan()
+    assert findings == []
+
+    # And records the failure as a global (region=None) coverage failure.
+    assert len(pattern.scan_errors) == 1
+    err = pattern.scan_errors[0]
+    assert err.pattern_id == "008"
+    assert err.region is None
+    assert err.error_type == "RuntimeError"
+    assert "exploded" in err.message

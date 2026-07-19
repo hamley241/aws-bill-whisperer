@@ -126,8 +126,14 @@ class S3LifecyclePattern(BasePattern):
                     logger.exception("p008 error analyzing bucket %s", bucket_name)
                     continue
 
-        except Exception:
+        except Exception as exc:
             logger.exception("p008 error scanning S3 buckets")
+            # p008 is a NON-regional pattern: list_buckets() is one global
+            # call, so a top-level failure here is a global coverage failure,
+            # not a per-region one. Record it via the base contract with
+            # region=None. Control flow is unchanged — we still fall through
+            # and return whatever findings were gathered before the failure.
+            self._record_region_error(None, exc)
 
         return self._findings
 

@@ -194,8 +194,14 @@ class BasePattern(ABC):
         import boto3
         self.session = session or boto3.Session()
         self._findings: list[Finding] = []
-        # Every pattern carries scan_errors whether or not it uses the
-        # base-owned region loop, so coverage is uniformly inspectable.
+        # Every pattern inherits scan_errors, but only patterns that route
+        # through run_across_regions() (or call _record_region_error
+        # directly, as p008 does for its global failure) actually populate
+        # it. Until NOT_YET_MIGRATED reaches empty, an empty scan_errors on
+        # an unmigrated pattern means "not instrumented", NOT "no failures":
+        # those patterns still swallow region errors in their inline loops.
+        # No tri-state or sentinel — just don't read more into [] than is
+        # there for a pattern that hasn't migrated.
         self.scan_errors: list[ScanError] = []
 
     @abstractmethod
@@ -227,6 +233,14 @@ class BasePattern(ABC):
         matches the hand-rolled loops it replaces: log with pattern id +
         region, record the error, continue.
         """
+        # Reset per-scan state as the FIRST thing we do, before any call
+        # that can raise (get_all_regions() hits ec2:DescribeRegions and
+        # can raise on missing creds/permissions). This guarantees a reused
+        # instance never reports the PREVIOUS scan's findings or failures,
+        # even when region resolution itself fails.
+        self._findings = []
+        self.scan_errors = []
+
         requested = regions or self.get_all_regions()
         if self.SUPPORTED_REGIONS is None:
             effective_regions = list(requested)
@@ -235,10 +249,26 @@ class BasePattern(ABC):
                 r for r in requested if r in self.SUPPORTED_REGIONS
             ]
 
-        # Reset per-scan state so a reused pattern instance reports only
-        # the current scan's findings and failures, not stale ones.
-        self._findings = []
-        self.scan_errors = []
+        # If SUPPORTED_REGIONS drops EVERY requested region, the loop would
+        # run zero times and return [] — indistinguishable from "scanned
+        # everything, found nothing". Record that as a coverage FACT, not a
+        # failure: this pattern applies nowhere in the requested set. We use
+        # the ScanError channel because it is the only structured coverage
+        # channel that exists until PR-2 adds regions_requested /
+        # regions_scanned to ScanResult; PR-2 should move this there.
+        if requested and not effective_regions:
+            self.scan_errors.append(
+                ScanError(
+                    pattern_id=self.PATTERN_ID,
+                    region=None,
+                    error_type="NoApplicableRegions",
+                    message=(
+                        f"{len(requested)} requested region(s) but none in "
+                        f"SUPPORTED_REGIONS"
+                    ),
+                )
+            )
+
         for region in effective_regions:
             try:
                 self._findings.extend(self._scan_region(region))
@@ -248,11 +278,18 @@ class BasePattern(ABC):
                     self.PATTERN_ID, region,
                 )
                 self._record_region_error(region, exc)
-                continue
         return self._findings
 
     def _record_region_error(self, region: str | None, exc: Exception) -> None:
-        """Append a ScanError for a failed region (None = global failure)."""
+        """Append a ScanError for a failed region.
+
+        `region=None` is an explicit, documented part of the contract: it
+        records a NON-regional (global) failure — a pattern whose scan is a
+        single global API call (e.g. p008's `list_buckets()`) has no single
+        region to attribute a failure to, and calls this with region=None
+        from its own top-level except handler. Regional patterns pass the
+        specific region that failed.
+        """
         self.scan_errors.append(
             ScanError(
                 pattern_id=self.PATTERN_ID,
