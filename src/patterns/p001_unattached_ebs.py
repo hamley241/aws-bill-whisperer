@@ -73,16 +73,9 @@ class UnattachedEBSPattern(BasePattern):
     # scan
     # ------------------------------------------------------------------
     def scan(self, regions: list[str] = None) -> list[Finding]:
-        regions = regions or self.get_all_regions()
-        self._findings = []
-
-        for region in regions:
-            try:
-                self._findings.extend(self._scan_region(region))
-            except Exception:  # pragma: no cover — surface in caller
-                logger.exception("p001 error scanning region %s", region)
-                continue
-        return self._findings
+        # BasePattern owns the per-region loop, the SUPPORTED_REGIONS
+        # filter, and record-error-and-continue (coverage capture).
+        return self.run_across_regions(regions)
 
     def _scan_region(self, region: str) -> list[Finding]:
         ec2 = self.session.client("ec2", region_name=region)
