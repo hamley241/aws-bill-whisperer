@@ -15,7 +15,7 @@ class DynamoDBCapacityPattern(BasePattern):
     NAME = "DynamoDB Capacity Mode Optimization"
     DESCRIPTION = "DynamoDB tables on wrong capacity mode (On-Demand vs Provisioned)"
     COMPLEXITY = Complexity.MEDIUM
-    SERVICES = ["dynamodb"]
+    SERVICES = ["dynamodb", "cloudwatch"]
     CATEGORY = Category.DATABASE
     REQUIRED_IAM = ["dynamodb:ListTables", "dynamodb:DescribeTable", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 

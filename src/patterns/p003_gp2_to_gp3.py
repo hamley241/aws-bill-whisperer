@@ -11,7 +11,7 @@ class GP2ToGP3Pattern(BasePattern):
     NAME = "GP2 to GP3 Migration"
     DESCRIPTION = "EBS gp2 volumes that could save ~20% by migrating to gp3"
     COMPLEXITY = Complexity.EASY
-    SERVICES = ["ec2", "ebs"]
+    SERVICES = ["ec2"]
     CATEGORY = Category.STORAGE
     REQUIRED_IAM = ["ec2:DescribeVolumes", "ec2:DescribeRegions"]
 

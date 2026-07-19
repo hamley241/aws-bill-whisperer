@@ -22,7 +22,7 @@ class CloudWatchLogsRetentionPattern(BasePattern):
     NAME = "CloudWatch Logs Retention & Storage"
     DESCRIPTION = "Log groups with excessive retention (>90 days) or using wrong storage class"
     COMPLEXITY = Complexity.EASY
-    SERVICES = ["logs", "cloudwatch"]
+    SERVICES = ["logs"]
     CATEGORY = Category.MONITORING
     REQUIRED_IAM = ["logs:DescribeLogGroups", "ec2:DescribeRegions"]
 
