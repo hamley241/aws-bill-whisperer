@@ -208,6 +208,31 @@ class BasePattern(ABC):
     def scan(self, regions: list[str] = None) -> list[Finding]:
         """Scan for this pattern. Tag every Finding with pattern_id."""
 
+    def _begin_scan(self) -> None:
+        """Reset per-scan state. MUST be the FIRST statement of any scan()
+        implementation.
+
+        Resets both `self._findings` and `self.scan_errors` to empty lists so
+        a reused pattern instance never reports a PREVIOUS scan's findings or
+        failures — stale coverage data is WRONG data, not merely absent, and
+        it looks authoritative, which is worse than an empty result.
+
+        This exists because per-scan state used to be reset ad hoc by whoever
+        remembered, and it drifted three times: run_across_regions first
+        never reset scan_errors, then reset it AFTER a call that can raise,
+        then p008 gained a scan_errors-writing path with no reset at all. One
+        entry point closes the class of bug instead of patching each site.
+
+        Call it BEFORE anything that can raise — in run_across_regions that
+        means before region resolution (get_all_regions() hits
+        ec2:DescribeRegions and can raise on missing creds/permissions).
+        When one of the 17 not-yet-migrated regional patterns migrates, it
+        adopts this by calling _begin_scan() FIRST, before its own region
+        resolution — the same late-reset shape lurks in those inline loops.
+        """
+        self._findings = []
+        self.scan_errors = []
+
     # ------------------------------------------------------------------
     # Coverage-aware region loop (CLAUDE.md principle: failures are
     # recorded, not silently swallowed).
@@ -235,11 +260,9 @@ class BasePattern(ABC):
         """
         # Reset per-scan state as the FIRST thing we do, before any call
         # that can raise (get_all_regions() hits ec2:DescribeRegions and
-        # can raise on missing creds/permissions). This guarantees a reused
-        # instance never reports the PREVIOUS scan's findings or failures,
-        # even when region resolution itself fails.
-        self._findings = []
-        self.scan_errors = []
+        # can raise on missing creds/permissions). One entry point owns this
+        # reset — see _begin_scan for why it is not done inline anymore.
+        self._begin_scan()
 
         requested = regions or self.get_all_regions()
         if self.SUPPORTED_REGIONS is None:

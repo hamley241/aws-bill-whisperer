@@ -134,20 +134,45 @@ NOT_YET_MIGRATED = {
 # from the response; forcing it through the per-region loop would duplicate
 # buckets or invent fake region labels. These report coverage failures as a
 # global ScanError(region=None), not through run_across_regions.
+#
+# Membership here is a DESIGN DECISION that needs review — adding a pattern is
+# a deliberate act, not a place to park a regional pattern to dodge migration.
+# The structural guardrail below (test_non_regional_must_not_define_scan_region)
+# is a guardrail against that misuse, not a proof of non-regionality: a
+# genuinely non-regional pattern has no per-region entry point (p008 has none),
+# while a regional one parked here almost certainly defines _scan_region, or
+# will the moment someone tries to make it work.
 NON_REGIONAL = {
     "008",
 }
 
 
 def _is_migrated(pattern_cls) -> bool:
-    """A pattern is migrated when its scan() makes a REAL call to
-    self.run_across_regions(...) — not merely mentions the name.
+    """A pattern is migrated when its scan() DELEGATES to
+    run_across_regions(...) as a real, top-level statement of its body —
+    not merely mentions the name and not in an unreachable branch.
 
-    We parse scan() with ast and require an ast.Call whose func is an
-    ast.Attribute `run_across_regions` on an ast.Name `self`. A match in a
-    comment, docstring, string literal, or dead branch is not a call and
-    does not count: approximate (substring) evidence is exactly what lets
-    drift persist, the same lesson the SERVICES and logging guards encode.
+    The delegation must be one of scan()'s own top-level body statements:
+      - a `return run_across_regions(...)`, or
+      - the call as a bare expression statement.
+    The receiver may be `self` or `super()` — a subclass that overrides
+    scan() only to add setup and then does `super().run_across_regions(...)`
+    is just as migrated as one calling `self.run_across_regions(...)`.
+
+    Two failure directions are guarded deliberately, and both were real
+    findings:
+
+      FALSE POSITIVE — ast.walk() finds a Call node regardless of
+      reachability, so `if False: self.run_across_regions(regions)` looked
+      migrated. Requiring a TOP-LEVEL statement (not any node anywhere in
+      the tree) closes the dead-branch half.
+
+      FALSE NEGATIVE — matching only `self.run_across_regions` rejected a
+      legitimate `super().run_across_regions(...)`. Accepting the super()
+      receiver closes it.
+
+    Approximate (substring / walk-anywhere) evidence is exactly what lets
+    drift persist — the same lesson the SERVICES and logging guards encode.
     """
     try:
         source = textwrap.dedent(inspect.getsource(pattern_cls.scan))
@@ -157,15 +182,39 @@ def _is_migrated(pattern_cls) -> bool:
         tree = ast.parse(source)
     except SyntaxError:
         return False
-    for node in ast.walk(tree):
+
+    func = next(
+        (n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "scan"),
+        None,
+    )
+    if func is None:
+        return False
+
+    def _is_delegation_call(call: ast.expr) -> bool:
+        if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)):
+            return False
+        if call.func.attr != "run_across_regions":
+            return False
+        recv = call.func.value
+        # receiver is `self`
+        if isinstance(recv, ast.Name) and recv.id == "self":
+            return True
+        # receiver is `super()`
         if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "run_across_regions"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "self"
+            isinstance(recv, ast.Call)
+            and isinstance(recv.func, ast.Name)
+            and recv.func.id == "super"
         ):
             return True
+        return False
+
+    for stmt in func.body:
+        if isinstance(stmt, ast.Return) and stmt.value is not None:
+            if _is_delegation_call(stmt.value):
+                return True
+        elif isinstance(stmt, ast.Expr):
+            if _is_delegation_call(stmt.value):
+                return True
     return False
 
 
@@ -216,6 +265,73 @@ def test_is_migrated_not_fooled_by_a_mention():
             return [note] and []
 
     assert _is_migrated(_MentionOnly) is False
+
+
+def test_is_migrated_rejects_dead_branch_call():
+    # The call is real syntactically but unreachable. A plain ast.walk would
+    # find the Call node and wrongly report migrated; requiring a top-level
+    # body statement closes this false positive.
+    class _DeadBranch(BasePattern):
+        PATTERN_ID = "997"
+        NAME = "DeadBranch"
+        CATEGORY = Category.GENERAL
+
+        def scan(self, regions=None):
+            if False:
+                self.run_across_regions(regions)
+            return []
+
+    assert _is_migrated(_DeadBranch) is False
+
+
+def test_is_migrated_accepts_super_delegation():
+    # A subclass that overrides scan() only to add setup and then delegates
+    # via super().run_across_regions(...) is just as migrated as one calling
+    # self.run_across_regions(...). Closes the false negative.
+    class _SuperDelegate(BasePattern):
+        PATTERN_ID = "996"
+        NAME = "SuperDelegate"
+        CATEGORY = Category.GENERAL
+
+        def scan(self, regions=None):
+            return super().run_across_regions(regions)
+
+    assert _is_migrated(_SuperDelegate) is True
+
+
+# ---------------------------------------------------------------------------
+# NON_REGIONAL is bookkeeping, not proof: a pattern parked there must not
+# define a per-region entry point. This is a guardrail against misuse (a
+# regional pattern dodging migration), not a proof of non-regionality.
+# ---------------------------------------------------------------------------
+def test_non_regional_patterns_do_not_define_scan_region():
+    patterns = {p.PATTERN_ID: p for p in discover_patterns()}
+    for pid in NON_REGIONAL:
+        cls = patterns.get(pid)
+        assert cls is not None, f"NON_REGIONAL lists unknown pattern {pid}"
+        # Own attribute, not the inherited BasePattern._scan_region stub.
+        assert "_scan_region" not in cls.__dict__, (
+            f"pattern {pid} is listed NON_REGIONAL but defines _scan_region — "
+            "a genuinely non-regional pattern has no per-region entry point. "
+            "This looks like a regional pattern parked here to dodge migration."
+        )
+
+
+def test_non_regional_guardrail_catches_a_regional_pattern():
+    # A stub that DOES define _scan_region must fail the structural check
+    # even if someone lists it as non-regional.
+    class _FakeNonRegional(BasePattern):
+        PATTERN_ID = "995"
+        NAME = "FakeNonRegional"
+        CATEGORY = Category.GENERAL
+
+        def scan(self, regions=None):
+            return self.run_across_regions(regions)
+
+        def _scan_region(self, region):
+            return []
+
+    assert "_scan_region" in _FakeNonRegional.__dict__
 
 
 # ---------------------------------------------------------------------------
@@ -289,3 +405,28 @@ def test_p008_records_global_scan_error_on_top_level_failure():
     assert err.region is None
     assert err.error_type == "RuntimeError"
     assert "exploded" in err.message
+
+
+def test_p008_failed_then_clean_rescan_clears_scan_errors():
+    # The REPRODUCED regression: p008 gained a scan_errors-writing path
+    # (_record_region_error(None, exc)) but its bare `self._findings = []`
+    # never reset scan_errors. A failing scan followed by a clean one left a
+    # stale error — WRONG coverage data that looks authoritative. Assert on
+    # p008 specifically, since that is the instance that regressed.
+    from patterns.p008_s3_lifecycle import S3LifecyclePattern
+
+    session = MagicMock()
+    client = session.client.return_value
+    # First scan: list_buckets() explodes -> one global ScanError.
+    client.list_buckets.side_effect = RuntimeError("list_buckets exploded")
+    pattern = S3LifecyclePattern(session=session)
+    pattern.scan()
+    assert len(pattern.scan_errors) == 1
+
+    # Second scan on the SAME instance succeeds (no buckets, no failure).
+    client.list_buckets.side_effect = None
+    client.list_buckets.return_value = {"Buckets": []}
+    findings = pattern.scan()
+
+    assert findings == []
+    assert pattern.scan_errors == []
