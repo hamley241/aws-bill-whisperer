@@ -14,7 +14,7 @@ class RedshiftEMRIdlePattern(BasePattern):
     NAME = "Idle Redshift and EMR Clusters"
     DESCRIPTION = "Redshift and EMR clusters idle after use - very high cost waste"
     COMPLEXITY = Complexity.MEDIUM
-    SERVICES = ["redshift", "emr"]
+    SERVICES = ["redshift", "emr", "cloudwatch"]
     CATEGORY = Category.DATABASE
     REQUIRED_IAM = ["redshift:DescribeClusters", "elasticmapreduce:ListClusters", "cloudwatch:GetMetricStatistics", "ec2:DescribeRegions"]
 
