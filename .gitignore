@@ -101,3 +101,7 @@ yarn-error.log*
 /samconfig.toml
 
 *.combined.md
+
+# Claude Code local settings (machine-specific)
+.claude/settings.local.json
+.claude/worktrees/
