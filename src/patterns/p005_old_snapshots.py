@@ -3,9 +3,13 @@ Pattern 005: Old EBS Snapshots
 Detects EBS snapshots older than a threshold (default 90 days) that may no longer be needed
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class OldSnapshotsPattern(BasePattern):
@@ -105,8 +109,8 @@ class OldSnapshotsPattern(BasePattern):
                     )
                     self._findings.append(finding)
 
-            except Exception as e:
-                print(f"Error scanning snapshots in {region}: {e}")
+            except Exception:
+                logger.exception("p005 error scanning snapshots in region %s", region)
                 continue
 
         return self._findings
@@ -128,7 +132,7 @@ class OldSnapshotsPattern(BasePattern):
 
             ec2 = self.session.client('ec2', region_name=finding.region)
             ec2.delete_snapshot(SnapshotId=finding.resource_id)
-            print(f"Deleted snapshot {finding.resource_id}")
+            logger.info("p005 deleted snapshot %s", finding.resource_id)
             return RemediationResult(
                 finding_id=finding.id,
                 pattern_id=self.PATTERN_ID,

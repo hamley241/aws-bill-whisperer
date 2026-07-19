@@ -5,9 +5,13 @@ Detects Lambda functions with memory configured higher than needed
 Lambda costs scale linearly with memory - 512MB costs 2x what 256MB does.
 Many functions are left at default 1024MB when 128-256MB would suffice.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class LambdaMemoryPattern(BasePattern):
@@ -50,8 +54,8 @@ class LambdaMemoryPattern(BasePattern):
                             region, start_time, end_time
                         )
 
-            except Exception as e:
-                print(f"Error scanning Lambda in {region}: {e}")
+            except Exception:
+                logger.exception("p015 error scanning Lambda in region %s", region)
                 continue
 
         return self._findings
@@ -304,9 +308,9 @@ class LambdaMemoryPattern(BasePattern):
                     FunctionName=function_name,
                     MemorySize=recommended_memory
                 )
-                print(f"Updated {function_name} memory to {recommended_memory}MB")
-            except Exception as e:
-                print(f"Error updating {function_name}: {e}")
+                logger.info("p015 updated %s memory to %sMB", function_name, recommended_memory)
+            except Exception:
+                logger.exception("p015 error updating %s", function_name)
                 return False
             return RemediationResult(
                 finding_id=finding.id,

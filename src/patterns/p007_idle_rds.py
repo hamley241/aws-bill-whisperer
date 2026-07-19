@@ -3,9 +3,13 @@ Pattern 007: Idle RDS Instances
 Detects RDS instances with low connections and CPU utilization that may be oversized or unused
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class IdleRDSPattern(BasePattern):
@@ -162,8 +166,8 @@ class IdleRDSPattern(BasePattern):
                     )
                     self._findings.append(finding)
 
-            except Exception as e:
-                print(f"Error scanning RDS instances in {region}: {e}")
+            except Exception:
+                logger.exception("p007 error scanning RDS instances in region %s", region)
                 continue
 
         return self._findings
@@ -188,8 +192,8 @@ class IdleRDSPattern(BasePattern):
 
             return sum(point['Average'] for point in response['Datapoints']) / len(response['Datapoints'])
 
-        except Exception as e:
-            print(f"Error getting CPU metrics for RDS instance {db_instance_id}: {e}")
+        except Exception:
+            logger.exception("p007 error getting CPU metrics for RDS instance %s", db_instance_id)
             return None
 
     def _get_average_connections(self, cloudwatch, db_instance_id: str) -> float:
@@ -212,8 +216,8 @@ class IdleRDSPattern(BasePattern):
 
             return sum(point['Average'] for point in response['Datapoints']) / len(response['Datapoints'])
 
-        except Exception as e:
-            print(f"Error getting connection metrics for RDS instance {db_instance_id}: {e}")
+        except Exception:
+            logger.exception("p007 error getting connection metrics for RDS instance %s", db_instance_id)
             return None
 
     def _suggest_smaller_instance_class(self, current_class: str) -> str:
@@ -254,7 +258,7 @@ class IdleRDSPattern(BasePattern):
 
             rds = self.session.client('rds', region_name=finding.region)
             rds.stop_db_instance(DBInstanceIdentifier=finding.resource_id)
-            print(f"Stopped RDS instance {finding.resource_id}")
+            logger.info("p007 stopped RDS instance %s", finding.resource_id)
             return RemediationResult(
                 finding_id=finding.id,
                 pattern_id=self.PATTERN_ID,

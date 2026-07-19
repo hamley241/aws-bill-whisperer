@@ -11,9 +11,13 @@ Common waste patterns:
 - Notebook instances forgotten after experiments
 - Endpoints with no inference traffic
 """
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class SageMakerIdlePattern(BasePattern):
@@ -108,8 +112,8 @@ class SageMakerIdlePattern(BasePattern):
                 # Scan notebook instances
                 self._scan_notebooks(sagemaker, cloudwatch, region)
 
-            except Exception as e:
-                print(f"Error scanning {region}: {e}")
+            except Exception:
+                logger.exception("p012 error scanning region %s", region)
                 continue
 
         return self._findings
@@ -190,8 +194,8 @@ class SageMakerIdlePattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error scanning endpoints in {region}: {e}")
+        except Exception:
+            logger.exception("p012 error scanning endpoints in region %s", region)
 
     def _scan_notebooks(self, sagemaker, cloudwatch, region: str):
         """Scan SageMaker notebook instances for idle resources."""
@@ -261,8 +265,8 @@ class SageMakerIdlePattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error scanning notebooks in {region}: {e}")
+        except Exception:
+            logger.exception("p012 error scanning notebooks in region %s", region)
 
     def _get_endpoint_invocations(self, cloudwatch, endpoint_name: str, start_time: datetime, end_time: datetime) -> int:
         """Get total invocation count for an endpoint."""
@@ -346,8 +350,8 @@ class SageMakerIdlePattern(BasePattern):
                     sagemaker.delete_endpoint(EndpointName=finding.resource_id)
                 elif finding.resource_type == "SageMaker Notebook Instance":
                     sagemaker.stop_notebook_instance(NotebookInstanceName=finding.resource_id)
-            except Exception as e:
-                print(f"Error fixing {finding.resource_id}: {e}")
+            except Exception:
+                logger.exception("p012 error fixing %s", finding.resource_id)
                 return False
             return RemediationResult(
                 finding_id=finding.id,

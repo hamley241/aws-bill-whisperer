@@ -5,9 +5,13 @@ Detects ECS services with zero traffic or Fargate tasks left running idle
 Fargate costs ~$0.04-0.10/vCPU-hour, and idle services are often forgotten
 after deployments or testing.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class ECSFargateIdlePattern(BasePattern):
@@ -54,8 +58,8 @@ class ECSFargateIdlePattern(BasePattern):
                         region, start_time, end_time
                     )
 
-            except Exception as e:
-                print(f"Error scanning ECS in {region}: {e}")
+            except Exception:
+                logger.exception("p014 error scanning ECS in region %s", region)
                 continue
 
         return self._findings
@@ -83,8 +87,8 @@ class ECSFargateIdlePattern(BasePattern):
                         ecs, cloudwatch, service, cluster_name,
                         region, start_time, end_time
                     )
-            except Exception as e:
-                print(f"Error describing services: {e}")
+            except Exception:
+                logger.exception("p014 error describing services")
                 continue
 
     def _check_service(self, ecs, cloudwatch, service: dict, cluster_name: str,

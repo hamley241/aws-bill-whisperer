@@ -5,9 +5,13 @@ Detects Secrets Manager secrets that are:
 - Have no rotation configured (security risk + wasted secret)
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class SecretsManagerPattern(BasePattern):
@@ -35,8 +39,8 @@ class SecretsManagerPattern(BasePattern):
             try:
                 secretsmanager = self.session.client('secretsmanager', region_name=region)
                 self._scan_secrets(secretsmanager, region)
-            except Exception as e:
-                print(f"Error scanning Secrets Manager in {region}: {e}")
+            except Exception:
+                logger.exception("p020 error scanning Secrets Manager in region %s", region)
                 continue
 
         return self._findings
@@ -50,8 +54,8 @@ class SecretsManagerPattern(BasePattern):
                 for secret_entry in page.get('SecretList', []):
                     self._analyze_secret(secretsmanager, secret_entry, region)
 
-        except Exception as e:
-            print(f"Error listing secrets in {region}: {e}")
+        except Exception:
+            logger.exception("p020 error listing secrets in region %s", region)
 
     def _analyze_secret(self, secretsmanager, secret_entry: dict, region: str):
         """Analyze a single secret for usage and rotation status."""
@@ -147,8 +151,8 @@ class SecretsManagerPattern(BasePattern):
             )
             self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error analyzing secret {secret_entry.get('Name', 'unknown')}: {e}")
+        except Exception:
+            logger.exception("p020 error analyzing secret %s", secret_entry.get("Name", "unknown"))
 
     def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
         if mode != RemediationMode.API_CALL:
@@ -174,10 +178,9 @@ class SecretsManagerPattern(BasePattern):
                     SecretId=finding.resource_id,
                     RecoveryWindowInDays=30
                 )
-                print(f"Scheduled deletion for secret {finding.resource_id} "
-                      f"(recovery possible for 30 days)")
-            except Exception as e:
-                print(f"Error deleting secret {finding.resource_id}: {e}")
+                logger.info("p020 scheduled deletion for secret %s (recovery possible for 30 days)", finding.resource_id)
+            except Exception:
+                logger.exception("p020 error deleting secret %s", finding.resource_id)
                 return False
             return RemediationResult(
                 finding_id=finding.id,

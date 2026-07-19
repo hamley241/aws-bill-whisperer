@@ -13,9 +13,13 @@ Common waste patterns:
 - Clusters for deprecated applications
 - Over-provisioned clusters with no traffic
 """
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class ElastiCacheIdlePattern(BasePattern):
@@ -86,8 +90,8 @@ class ElastiCacheIdlePattern(BasePattern):
                 # Scan Memcached clusters
                 self._scan_memcached_clusters(elasticache, cloudwatch, region)
 
-            except Exception as e:
-                print(f"Error scanning {region}: {e}")
+            except Exception:
+                logger.exception("p013 error scanning region %s", region)
                 continue
 
         return self._findings
@@ -170,8 +174,8 @@ class ElastiCacheIdlePattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error scanning Redis clusters in {region}: {e}")
+        except Exception:
+            logger.exception("p013 error scanning Redis clusters in region %s", region)
 
     def _scan_memcached_clusters(self, elasticache, cloudwatch, region: str):
         """Scan Memcached cache clusters for idle clusters."""
@@ -239,8 +243,8 @@ class ElastiCacheIdlePattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error scanning Memcached clusters in {region}: {e}")
+        except Exception:
+            logger.exception("p013 error scanning Memcached clusters in region %s", region)
 
     def _get_redis_instance_type(self, elasticache, member_clusters: list) -> str:
         """Get instance type from Redis cluster members."""
@@ -338,8 +342,8 @@ class ElastiCacheIdlePattern(BasePattern):
                     elasticache.delete_cache_cluster(
                         CacheClusterId=finding.resource_id
                     )
-            except Exception as e:
-                print(f"Error deleting {finding.resource_id}: {e}")
+            except Exception:
+                logger.exception("p013 error deleting %s", finding.resource_id)
                 return False
             return RemediationResult(
                 finding_id=finding.id,

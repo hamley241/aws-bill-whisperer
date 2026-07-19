@@ -4,9 +4,13 @@ Detects resources generating high cross-AZ data transfer costs.
 Cross-AZ data transfer is the "silent killer" of AWS bills at $0.01/GB each way.
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class CrossAZTransferPattern(BasePattern):
@@ -42,8 +46,8 @@ class CrossAZTransferPattern(BasePattern):
                 # Check EC2 instances with high NetworkOut in multi-AZ setups
                 self._scan_ec2_cross_az(region)
 
-            except Exception as e:
-                print(f"Error scanning cross-AZ in {region}: {e}")
+            except Exception:
+                logger.exception("p009 error scanning cross-AZ in region %s", region)
                 continue
 
         return self._findings
@@ -112,8 +116,8 @@ class CrossAZTransferPattern(BasePattern):
                 )
                 self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error scanning RDS Multi-AZ in {region}: {e}")
+        except Exception:
+            logger.exception("p009 error scanning RDS Multi-AZ in region %s", region)
 
     def _scan_elasticache_cross_az(self, region: str) -> None:
         """Detect ElastiCache clusters with cross-AZ replication"""
@@ -189,8 +193,8 @@ class CrossAZTransferPattern(BasePattern):
                 )
                 self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error scanning ElastiCache in {region}: {e}")
+        except Exception:
+            logger.exception("p009 error scanning ElastiCache in region %s", region)
 
     def _scan_ec2_cross_az(self, region: str) -> None:
         """Detect EC2 instances with high network out that may be cross-AZ"""
@@ -293,8 +297,8 @@ class CrossAZTransferPattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-        except Exception as e:
-            print(f"Error scanning EC2 cross-AZ in {region}: {e}")
+        except Exception:
+            logger.exception("p009 error scanning EC2 cross-AZ in region %s", region)
 
     def _get_rds_write_bytes(self, cloudwatch, db_id: str) -> float:
         """Get RDS write throughput over the past 30 days"""

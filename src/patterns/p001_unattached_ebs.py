@@ -22,6 +22,7 @@ so the audit log captures the attempt.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from .base import (
@@ -33,6 +34,9 @@ from .base import (
     RemediationResult,
     RiskTier,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 PRICE_PER_GB = {
@@ -75,8 +79,8 @@ class UnattachedEBSPattern(BasePattern):
         for region in regions:
             try:
                 self._findings.extend(self._scan_region(region))
-            except Exception as e:  # pragma: no cover — surface in caller
-                print(f"Error scanning {region}: {e}")
+            except Exception:  # pragma: no cover — surface in caller
+                logger.exception("p001 error scanning region %s", region)
                 continue
         return self._findings
 

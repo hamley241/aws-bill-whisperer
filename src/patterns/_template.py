@@ -6,11 +6,25 @@ COPY THIS FILE to create a new pattern:
 1. Copy to pXXX_your_pattern_name.py
 2. Update PATTERN_ID, NAME, DESCRIPTION
 3. Implement scan() method
-4. Optionally implement fix() method
+4. Optionally override remediate(finding, mode) for the modes this pattern
+   supports (dry_run, command, pr, api_call). The base class handles
+   dry_run and command off finding.fix_command; override to add pr /
+   api_call. See p001_unattached_ebs.py for the reference implementation.
 """
 
 
-from .base import BasePattern, Complexity, Finding
+import logging
+
+from .base import (
+    BasePattern,
+    Complexity,
+    Finding,
+    RemediationMode,
+    RemediationResult,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 class TemplatePattern(BasePattern):
@@ -68,28 +82,55 @@ class TemplatePattern(BasePattern):
 
                 pass  # Remove this when implementing
 
-            except Exception as e:
-                print(f"Error scanning {region}: {e}")
+            except Exception:
+                logger.exception("template pattern error scanning region %s", region)
                 continue
 
         return self._findings
 
-    def fix(self, finding: Finding, dry_run: bool = True) -> bool:
+    def remediate(self, finding: Finding, mode: RemediationMode) -> RemediationResult:
         """
-        Optional: Implement automated fix.
-        
-        Only implement if the fix is safe and reversible.
-        Always check finding.safe_to_fix first.
+        Optional: apply a fix in the requested mode (CLAUDE.md principle 4 —
+        one entry point dispatching on mode).
+
+        The base class already handles DRY_RUN and COMMAND off
+        finding.fix_command. Override here to add PR (emit an IaC diff) and
+        API_CALL (execute the AWS call, gated on finding.safe_to_fix). See
+        p001_unattached_ebs.py for the reference bulletproof implementation.
         """
-        if not finding.safe_to_fix:
-            raise ValueError(f"Cannot safely fix {finding.resource_id}")
+        # DRY_RUN / COMMAND are handled by the base class off fix_command.
+        if mode in (RemediationMode.DRY_RUN, RemediationMode.COMMAND):
+            return super().remediate(finding, mode)
 
-        if dry_run:
-            print(f"[DRY RUN] Would fix {finding.resource_id}")
-            return True
+        # if mode == RemediationMode.PR:
+        #     return RemediationResult(
+        #         finding_id=finding.id,
+        #         pattern_id=self.PATTERN_ID,
+        #         mode=mode,
+        #         success=True,
+        #         message="Terraform diff hint emitted",
+        #         output=self._terraform_diff_hint(finding),
+        #     )
 
-        # Implement actual fix here
-        # client = self.session.client('service', region_name=finding.region)
-        # client.delete_thing(Id=finding.resource_id)
+        # if mode == RemediationMode.API_CALL:
+        #     if not finding.safe_to_fix:
+        #         return RemediationResult(
+        #             finding_id=finding.id,
+        #             pattern_id=self.PATTERN_ID,
+        #             mode=mode,
+        #             success=False,
+        #             message=f"refusing to fix {finding.resource_id}: safety gate failed",
+        #         )
+        #     # client = self.session.client('service', region_name=finding.region)
+        #     # client.delete_thing(Id=finding.resource_id)
+        #     return RemediationResult(
+        #         finding_id=finding.id,
+        #         pattern_id=self.PATTERN_ID,
+        #         mode=mode,
+        #         success=True,
+        #         message=f"fixed {finding.resource_id}",
+        #     )
 
-        return True
+        # Modes this pattern doesn't support fall through to the base class,
+        # which returns a "not supported" result (or raises on unknown modes).
+        return super().remediate(finding, mode)

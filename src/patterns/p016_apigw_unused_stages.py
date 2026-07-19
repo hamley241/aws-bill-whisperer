@@ -5,9 +5,13 @@ Detects API Gateway stages with zero requests
 API Gateway stages incur costs even with zero traffic due to cache and
 other features. Forgotten dev/test stages accumulate charges.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 
 from .base import BasePattern, Complexity, Finding, RemediationMode, RemediationResult, RiskTier, Category
+
+
+logger = logging.getLogger(__name__)
 
 
 class APIGWUnusedStagesPattern(BasePattern):
@@ -53,8 +57,8 @@ class APIGWUnusedStagesPattern(BasePattern):
                 # Scan HTTP APIs (v2)
                 self._scan_http_apis(region, start_time, end_time)
 
-            except Exception as e:
-                print(f"Error scanning API Gateway in {region}: {e}")
+            except Exception:
+                logger.exception("p016 error scanning API Gateway in region %s", region)
                 continue
 
         return self._findings
@@ -84,8 +88,8 @@ class APIGWUnusedStagesPattern(BasePattern):
                         cloudwatch, api_id, api_name, stage,
                         region, start_time, end_time
                     )
-            except Exception as e:
-                print(f"Error getting stages for {api_name}: {e}")
+            except Exception:
+                logger.exception("p016 error getting stages for %s", api_name)
                 continue
 
     def _check_rest_stage(self, cloudwatch, api_id: str, api_name: str,
@@ -200,8 +204,8 @@ class APIGWUnusedStagesPattern(BasePattern):
             paginator = apigwv2.get_paginator("get_apis")
             for page in paginator.paginate():
                 apis.extend(page.get("Items", []))
-        except Exception as e:
-            print(f"Error listing HTTP APIs in {region}: {e}")
+        except Exception:
+            logger.exception("p016 error listing HTTP APIs in region %s", region)
             return
 
         for api in apis:
@@ -221,8 +225,8 @@ class APIGWUnusedStagesPattern(BasePattern):
                         cloudwatch, api_id, api_name, stage,
                         protocol_type, region, start_time, end_time
                     )
-            except Exception as e:
-                print(f"Error getting stages for HTTP API {api_name}: {e}")
+            except Exception:
+                logger.exception("p016 error getting stages for HTTP API %s", api_name)
                 continue
 
     def _check_http_stage(self, cloudwatch, api_id: str, api_name: str,
