@@ -283,5 +283,141 @@ def test_method_name_detection_ignores_fix_in_strings_and_comments():
     assert "fix" not in _class_method_names(ast.parse(src))
 
 
+# ---------------------------------------------------------------------------
+# Structured-logging convention.
+#
+# One convention beats two: every ``logger.exception(...)`` / ``logger.info(...)``
+# call in ``src/patterns/`` must pass ``extra={...}`` — a dict literal carrying
+# at least ``pattern_id`` (see p004_idle_ec2.py for the reference shape, incl.
+# ``region``/``outcome``/``exception_type``/``exception_message``). The system
+# runs on records that MACHINES read: structured fields are greppable,
+# parseable, and correlatable across a scan; positional %-args force re-parsing
+# prose to recover the same facts and never fully do.
+#
+# Derived from the parsed AST, not string matching, so a ``logger.info`` inside
+# a comment or string literal is correctly ignored and one in code is caught.
+# ---------------------------------------------------------------------------
+
+STRUCTURED_LOG_METHODS = ("exception", "info")
+REQUIRED_EXTRA_KEY = "pattern_id"
+
+
+def _logger_method_calls(tree: ast.Module) -> list[ast.Call]:
+    """Every ``logger.<m>(...)`` call whose ``<m>`` is in
+    ``STRUCTURED_LOG_METHODS`` — an attribute call on a bare ``logger`` Name."""
+    calls = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in STRUCTURED_LOG_METHODS
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "logger"
+        ):
+            calls.append(node)
+    return calls
+
+
+def _structured_logging_offenders(tree: ast.Module) -> list[tuple[int, str]]:
+    """``(lineno, reason)`` for each logger.exception/info call that does not
+    pass ``extra={...}`` (a dict literal) containing a literal ``pattern_id``
+    key. Empty list means the module conforms.
+
+    The check is exact, not approximate: ``extra`` must be a ``Dict`` literal
+    (so the keys are inspectable) and must contain the constant string key
+    ``pattern_id``. A non-literal ``extra`` (e.g. ``extra=some_var``) can't be
+    verified to carry ``pattern_id`` and so does not satisfy the convention.
+    """
+    offenders = []
+    for call in _logger_method_calls(tree):
+        extra_kw = next((k for k in call.keywords if k.arg == "extra"), None)
+        if extra_kw is None or not isinstance(extra_kw.value, ast.Dict):
+            offenders.append((call.lineno, "no extra={...} dict literal"))
+            continue
+        literal_keys = {
+            k.value
+            for k in extra_kw.value.keys
+            if isinstance(k, ast.Constant) and isinstance(k.value, str)
+        }
+        if REQUIRED_EXTRA_KEY not in literal_keys:
+            offenders.append(
+                (call.lineno, f"extra={{...}} missing {REQUIRED_EXTRA_KEY!r} key")
+            )
+    return sorted(offenders)
+
+
+def test_pattern_logger_calls_carry_structured_extra_with_pattern_id():
+    """Every ``logger.exception``/``logger.info`` in ``src/patterns/`` must
+    pass ``extra={...}`` with at least a literal ``pattern_id`` key.
+
+    Fails LOUDLY with file + line for any offender — including a call site that
+    legitimately cannot supply ``pattern_id`` (e.g. module-level code outside a
+    class). That is deliberately not skipped and not exempted: a human rules on
+    it by fixing the call site or the guard, never by adding it to an
+    allow-list.
+    """
+    offenders = {}
+    for path in _pattern_module_paths():
+        found = _structured_logging_offenders(_parse(path))
+        if found:
+            offenders[path.name] = found
+
+    assert not offenders, (
+        "logger.exception/info call(s) in src/patterns/ do not carry "
+        "extra={...} with a literal `pattern_id` key — the structured logging "
+        "convention (see p004_idle_ec2.py). Records here are read by machines: "
+        'extra={"pattern_id", "region", "outcome", ...} supplements the human '
+        "message, it does not replace it. If a call site genuinely cannot "
+        "supply pattern_id, that is for a human to rule on — fix the call or "
+        "the guard, never add an exemption. "
+        "Offenders (module -> [(line, reason), ...]): "
+        + "; ".join(f"{name} -> {lst}" for name, lst in sorted(offenders.items()))
+    )
+
+
+# ---------------------------------------------------------------------------
+# Meta-tests: prove the structured-logging guard has teeth — it must fire when
+# extra= is dropped, when pattern_id is missing, and when extra is not a dict
+# literal, and must pass a conforming call. Synthetic source only.
+# ---------------------------------------------------------------------------
+def test_structured_guard_fires_when_extra_missing():
+    src = "logger.exception('p0NN error scanning region %s', region)\n"
+    assert _structured_logging_offenders(ast.parse(src)) == [
+        (1, "no extra={...} dict literal")
+    ]
+
+
+def test_structured_guard_fires_when_pattern_id_missing():
+    src = "logger.info('ok', extra={'region': region, 'outcome': 'ok'})\n"
+    assert _structured_logging_offenders(ast.parse(src)) == [
+        (1, "extra={...} missing 'pattern_id' key")
+    ]
+
+
+def test_structured_guard_fires_when_extra_is_not_a_dict_literal():
+    src = "logger.info('ok', extra=some_precomputed_dict)\n"
+    assert _structured_logging_offenders(ast.parse(src)) == [
+        (1, "no extra={...} dict literal")
+    ]
+
+
+def test_structured_guard_passes_conforming_call():
+    src = (
+        "logger.exception('boom %s', region, extra={'pattern_id': "
+        "self.PATTERN_ID, 'region': region, 'outcome': 'failed'})\n"
+    )
+    assert _structured_logging_offenders(ast.parse(src)) == []
+
+
+def test_structured_guard_ignores_non_logger_and_other_methods():
+    # Only logger.exception/info are governed; a debug call or a non-logger
+    # object is out of scope and must not be flagged.
+    src = (
+        "logger.debug('noise')\n"
+        "other.info('not the module logger')\n"
+    )
+    assert _structured_logging_offenders(ast.parse(src)) == []
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))

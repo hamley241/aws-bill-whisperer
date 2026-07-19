@@ -321,8 +321,16 @@ class IdleEC2Pattern(BasePattern):
         try:
             paginator = elbv2.get_paginator("describe_target_groups")
             pages = paginator.paginate()
-        except Exception:
-            logger.exception("p004: describe_target_groups paginator failed")
+        except Exception as exc:
+            logger.exception(
+                "p004: describe_target_groups paginator failed",
+                extra={
+                    "pattern_id": IdleEC2Pattern.PATTERN_ID,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
             return index
 
         for page in pages:
@@ -334,9 +342,16 @@ class IdleEC2Pattern(BasePattern):
                     continue
                 try:
                     health = elbv2.describe_target_health(TargetGroupArn=tg_arn)
-                except Exception:
+                except Exception as exc:
                     logger.exception(
                         "p004: describe_target_health failed for %s", tg_arn,
+                        extra={
+                            "pattern_id": IdleEC2Pattern.PATTERN_ID,
+                            "target_group_arn": tg_arn,
+                            "outcome": "failed",
+                            "exception_type": type(exc).__name__,
+                            "exception_message": str(exc),
+                        },
                     )
                     continue
                 for thd in health.get("TargetHealthDescriptions", []):
@@ -360,9 +375,17 @@ class IdleEC2Pattern(BasePattern):
                 Period=3600,
                 Statistics=["Average", "Maximum"],
             )
-        except Exception:
-            logger.exception("p004: CPUUtilization fetch failed for %s",
-                             instance_id)
+        except Exception as exc:
+            logger.exception(
+                "p004: CPUUtilization fetch failed for %s", instance_id,
+                extra={
+                    "pattern_id": IdleEC2Pattern.PATTERN_ID,
+                    "instance_id": instance_id,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
             return None, None, 0
         dps = resp.get("Datapoints", []) or []
         if not dps:
@@ -396,9 +419,17 @@ class IdleEC2Pattern(BasePattern):
                     Period=3600,
                     Statistics=["Sum"],
                 )
-            except Exception:
+            except Exception as exc:
                 logger.exception(
                     "p004: %s fetch failed for %s", m, instance_id,
+                    extra={
+                        "pattern_id": IdleEC2Pattern.PATTERN_ID,
+                        "instance_id": instance_id,
+                        "metric_name": m,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
                 )
                 continue
             dps = resp.get("Datapoints", []) or []

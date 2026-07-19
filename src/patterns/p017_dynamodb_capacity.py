@@ -51,8 +51,17 @@ class DynamoDBCapacityPattern(BasePattern):
                     for table_name in page.get('TableNames', []):
                         self._analyze_table(dynamodb, cloudwatch, table_name, region)
 
-            except Exception:
-                logger.exception("p017 error scanning DynamoDB in region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p017 error scanning DynamoDB in region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -73,8 +82,18 @@ class DynamoDBCapacityPattern(BasePattern):
             else:  # Provisioned
                 self._check_provisioned_table(cloudwatch, table, table_name, region, start_time, end_time)
 
-        except Exception:
-            logger.exception("p017 error analyzing table %s", table_name)
+        except Exception as exc:
+            logger.exception(
+                "p017 error analyzing table %s", table_name,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "table_name": table_name,
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _check_on_demand_table(self, cloudwatch, table, table_name: str, region: str,
                                 start_time: datetime, end_time: datetime):

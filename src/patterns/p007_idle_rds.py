@@ -166,8 +166,17 @@ class IdleRDSPattern(BasePattern):
                     )
                     self._findings.append(finding)
 
-            except Exception:
-                logger.exception("p007 error scanning RDS instances in region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p007 error scanning RDS instances in region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -192,8 +201,17 @@ class IdleRDSPattern(BasePattern):
 
             return sum(point['Average'] for point in response['Datapoints']) / len(response['Datapoints'])
 
-        except Exception:
-            logger.exception("p007 error getting CPU metrics for RDS instance %s", db_instance_id)
+        except Exception as exc:
+            logger.exception(
+                "p007 error getting CPU metrics for RDS instance %s", db_instance_id,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "outcome": "failed",
+                    "db_instance_id": db_instance_id,
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
             return None
 
     def _get_average_connections(self, cloudwatch, db_instance_id: str) -> float:
@@ -216,8 +234,17 @@ class IdleRDSPattern(BasePattern):
 
             return sum(point['Average'] for point in response['Datapoints']) / len(response['Datapoints'])
 
-        except Exception:
-            logger.exception("p007 error getting connection metrics for RDS instance %s", db_instance_id)
+        except Exception as exc:
+            logger.exception(
+                "p007 error getting connection metrics for RDS instance %s", db_instance_id,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "outcome": "failed",
+                    "db_instance_id": db_instance_id,
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
             return None
 
     def _suggest_smaller_instance_class(self, current_class: str) -> str:
@@ -258,7 +285,15 @@ class IdleRDSPattern(BasePattern):
 
             rds = self.session.client('rds', region_name=finding.region)
             rds.stop_db_instance(DBInstanceIdentifier=finding.resource_id)
-            logger.info("p007 stopped RDS instance %s", finding.resource_id)
+            logger.info(
+                "p007 stopped RDS instance %s", finding.resource_id,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": finding.region,
+                    "outcome": "ok",
+                    "db_instance_id": finding.resource_id,
+                },
+            )
             return RemediationResult(
                 finding_id=finding.id,
                 pattern_id=self.PATTERN_ID,

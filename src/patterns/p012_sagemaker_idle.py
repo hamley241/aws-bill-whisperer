@@ -112,8 +112,17 @@ class SageMakerIdlePattern(BasePattern):
                 # Scan notebook instances
                 self._scan_notebooks(sagemaker, cloudwatch, region)
 
-            except Exception:
-                logger.exception("p012 error scanning region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p012 error scanning region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -194,8 +203,17 @@ class SageMakerIdlePattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p012 error scanning endpoints in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p012 error scanning endpoints in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _scan_notebooks(self, sagemaker, cloudwatch, region: str):
         """Scan SageMaker notebook instances for idle resources."""
@@ -265,8 +283,17 @@ class SageMakerIdlePattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p012 error scanning notebooks in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p012 error scanning notebooks in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _get_endpoint_invocations(self, cloudwatch, endpoint_name: str, start_time: datetime, end_time: datetime) -> int:
         """Get total invocation count for an endpoint."""
@@ -347,11 +374,23 @@ class SageMakerIdlePattern(BasePattern):
         
             try:
                 if finding.resource_type == "SageMaker Endpoint":
+                    subject_field = "endpoint_name"
                     sagemaker.delete_endpoint(EndpointName=finding.resource_id)
                 elif finding.resource_type == "SageMaker Notebook Instance":
+                    subject_field = "notebook_instance_name"
                     sagemaker.stop_notebook_instance(NotebookInstanceName=finding.resource_id)
-            except Exception:
-                logger.exception("p012 error fixing %s", finding.resource_id)
+            except Exception as exc:
+                logger.exception(
+                    "p012 error fixing %s", finding.resource_id,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": finding.region,
+                        "outcome": "failed",
+                        subject_field: finding.resource_id,
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 return False
             return RemediationResult(
                 finding_id=finding.id,

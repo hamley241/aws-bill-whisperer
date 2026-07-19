@@ -101,8 +101,17 @@ class GP2ToGP3Pattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-            except Exception:
-                logger.exception("p003 error scanning region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p003 error scanning region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -149,7 +158,15 @@ class GP2ToGP3Pattern(BasePattern):
                 VolumeType="gp3",
                 Iops=finding.metadata.get("proposed_iops", 3000)
             )
-            logger.info("p003 modified volume %s: %s", finding.resource_id, result["VolumeModification"]["Status"])
+            logger.info(
+                "p003 modified volume %s: %s", finding.resource_id, result["VolumeModification"]["Status"],
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": finding.region,
+                    "outcome": "ok",
+                    "volume_id": finding.resource_id,
+                },
+            )
             return RemediationResult(
                 finding_id=finding.id,
                 pattern_id=self.PATTERN_ID,

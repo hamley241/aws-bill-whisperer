@@ -10,6 +10,13 @@ COPY THIS FILE to create a new pattern:
    supports (dry_run, command, pr, api_call). The base class handles
    dry_run and command off finding.fix_command; override to add pr /
    api_call. See p001_unattached_ebs.py for the reference implementation.
+
+Logging convention (do not drop it — this file is the copy source):
+never print(); log with logger.exception (failures) / logger.info (status)
+and ALWAYS pass structured extra={"pattern_id": self.PATTERN_ID, "region":
+region, "outcome": "ok"|"failed", ...} — add exception_type/exception_message
+on failure paths, and a named subject field (bucket_name, instance_id, ...)
+where the site has one. See p004_idle_ec2.py for the reference shape.
 """
 
 
@@ -82,8 +89,17 @@ class TemplatePattern(BasePattern):
 
                 pass  # Remove this when implementing
 
-            except Exception:
-                logger.exception("template pattern error scanning region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "template pattern error scanning region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings

@@ -56,13 +56,31 @@ class RedshiftEMRIdlePattern(BasePattern):
         for region in regions:
             try:
                 self._scan_redshift(region)
-            except Exception:
-                logger.exception("p018 error scanning Redshift in region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p018 error scanning Redshift in region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
 
             try:
                 self._scan_emr(region)
-            except Exception:
-                logger.exception("p018 error scanning EMR in region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p018 error scanning EMR in region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
 
         return self._findings
 
@@ -76,8 +94,17 @@ class RedshiftEMRIdlePattern(BasePattern):
             for page in paginator.paginate():
                 for cluster in page.get('Clusters', []):
                     self._analyze_redshift_cluster(cluster, cloudwatch, region)
-        except Exception:
-            logger.exception("p018 error listing Redshift clusters in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p018 error listing Redshift clusters in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _analyze_redshift_cluster(self, cluster: dict, cloudwatch, region: str):
         """Analyze a single Redshift cluster for idle status."""
@@ -187,8 +214,17 @@ class RedshiftEMRIdlePattern(BasePattern):
                 for cluster_summary in page.get('Clusters', []):
                     cluster_id = cluster_summary['Id']
                     self._analyze_emr_cluster(emr, cloudwatch, cluster_id, region)
-        except Exception:
-            logger.exception("p018 error listing EMR clusters in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p018 error listing EMR clusters in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _analyze_emr_cluster(self, emr, cloudwatch, cluster_id: str, region: str):
         """Analyze a single EMR cluster for idle status."""
@@ -276,8 +312,18 @@ class RedshiftEMRIdlePattern(BasePattern):
             )
             self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p018 error analyzing EMR cluster %s", cluster_id)
+        except Exception as exc:
+            logger.exception(
+                "p018 error analyzing EMR cluster %s", cluster_id,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "cluster_id": cluster_id,
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _get_emr_metric(self, cloudwatch, cluster_id: str, metric_name: str,
                          start_time: datetime, end_time: datetime) -> dict:

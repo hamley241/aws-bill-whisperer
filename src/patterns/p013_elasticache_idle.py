@@ -90,8 +90,17 @@ class ElastiCacheIdlePattern(BasePattern):
                 # Scan Memcached clusters
                 self._scan_memcached_clusters(elasticache, cloudwatch, region)
 
-            except Exception:
-                logger.exception("p013 error scanning region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p013 error scanning region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -174,8 +183,17 @@ class ElastiCacheIdlePattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p013 error scanning Redis clusters in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p013 error scanning Redis clusters in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _scan_memcached_clusters(self, elasticache, cloudwatch, region: str):
         """Scan Memcached cache clusters for idle clusters."""
@@ -243,8 +261,17 @@ class ElastiCacheIdlePattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p013 error scanning Memcached clusters in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p013 error scanning Memcached clusters in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _get_redis_instance_type(self, elasticache, member_clusters: list) -> str:
         """Get instance type from Redis cluster members."""
@@ -334,16 +361,28 @@ class ElastiCacheIdlePattern(BasePattern):
         
             try:
                 if "Redis" in finding.resource_type:
+                    subject_field = "replication_group_id"
                     elasticache.delete_replication_group(
                         ReplicationGroupId=finding.resource_id,
                         RetainPrimaryCluster=False
                     )
                 else:  # Memcached
+                    subject_field = "cache_cluster_id"
                     elasticache.delete_cache_cluster(
                         CacheClusterId=finding.resource_id
                     )
-            except Exception:
-                logger.exception("p013 error deleting %s", finding.resource_id)
+            except Exception as exc:
+                logger.exception(
+                    "p013 error deleting %s", finding.resource_id,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": finding.region,
+                        "outcome": "failed",
+                        subject_field: finding.resource_id,
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 return False
             return RemediationResult(
                 finding_id=finding.id,

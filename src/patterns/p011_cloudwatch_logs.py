@@ -54,8 +54,17 @@ class CloudWatchLogsRetentionPattern(BasePattern):
                         findings = self._analyze_log_group(log_group, region)
                         self._findings.extend(findings)
 
-            except Exception:
-                logger.exception("p011 error scanning region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p011 error scanning region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -205,8 +214,18 @@ class CloudWatchLogsRetentionPattern(BasePattern):
                     logGroupName=finding.resource_id,
                     retentionInDays=90
                 )
-            except Exception:
-                logger.exception("p011 error setting retention policy")
+            except Exception as exc:
+                logger.exception(
+                    "p011 error setting retention policy",
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": finding.region,
+                        "outcome": "failed",
+                        "log_group_name": finding.resource_id,
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 return False
             return RemediationResult(
                 finding_id=finding.id,

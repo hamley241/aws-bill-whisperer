@@ -299,6 +299,13 @@ class BasePattern(ABC):
                 logger.exception(
                     "p%s scan failed for region %s; continuing",
                     self.PATTERN_ID, region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
                 )
                 self._record_region_error(region, exc)
         return self._findings

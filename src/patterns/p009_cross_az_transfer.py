@@ -46,8 +46,17 @@ class CrossAZTransferPattern(BasePattern):
                 # Check EC2 instances with high NetworkOut in multi-AZ setups
                 self._scan_ec2_cross_az(region)
 
-            except Exception:
-                logger.exception("p009 error scanning cross-AZ in region %s", region)
+            except Exception as exc:
+                logger.exception(
+                    "p009 error scanning cross-AZ in region %s", region,
+                    extra={
+                        "pattern_id": self.PATTERN_ID,
+                        "region": region,
+                        "outcome": "failed",
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                )
                 continue
 
         return self._findings
@@ -116,8 +125,17 @@ class CrossAZTransferPattern(BasePattern):
                 )
                 self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p009 error scanning RDS Multi-AZ in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p009 error scanning RDS Multi-AZ in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _scan_elasticache_cross_az(self, region: str) -> None:
         """Detect ElastiCache clusters with cross-AZ replication"""
@@ -193,8 +211,17 @@ class CrossAZTransferPattern(BasePattern):
                 )
                 self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p009 error scanning ElastiCache in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p009 error scanning ElastiCache in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _scan_ec2_cross_az(self, region: str) -> None:
         """Detect EC2 instances with high network out that may be cross-AZ"""
@@ -297,8 +324,17 @@ class CrossAZTransferPattern(BasePattern):
                         )
                         self._findings.append(finding)
 
-        except Exception:
-            logger.exception("p009 error scanning EC2 cross-AZ in region %s", region)
+        except Exception as exc:
+            logger.exception(
+                "p009 error scanning EC2 cross-AZ in region %s", region,
+                extra={
+                    "pattern_id": self.PATTERN_ID,
+                    "region": region,
+                    "outcome": "failed",
+                    "exception_type": type(exc).__name__,
+                    "exception_message": str(exc),
+                },
+            )
 
     def _get_rds_write_bytes(self, cloudwatch, db_id: str) -> float:
         """Get RDS write throughput over the past 30 days"""
